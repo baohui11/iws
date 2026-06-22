@@ -1,0 +1,23 @@
+# 注意：Compose 在「compose 文件所在目录」查找用于 ${VAR} 替换的 .env。
+# 本文件在 docker/ 下，因此 ${NEXT_PUBLIC_*} 只会从 docker/.env 读取，不会读仓库根目录的 .env。
+# 推荐：在仓库根目录使用 compose.yaml（docker compose up --build -d）。
+# 若坚持本文件：在 docker/.env 填 NEXT_PUBLIC_*，或执行
+#   docker compose --env-file ../.env -f docker/docker-compose.yml up --build -d
+#
+# NEXT_PUBLIC_* 在构建阶段注入；其余密钥在运行时通过 env_file 注入。
+
+services:
+  iws:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    image: iws:latest
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production

@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules
+.next
+out
+
+# 仓库与本地
+.git
+.gitignore
+**/.DS_Store
+
+# 环境（镜像内用运行时注入，勿打进构建上下文）
+.env
+.env.*
+!.env.example
+
+# 文档与杂项
+*.md
+*.tar
+coverage
+temp
+supabase
+
+# Docker 自身（减小 build context）
+docker

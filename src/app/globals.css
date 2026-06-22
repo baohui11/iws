@@ -1,0 +1,11 @@
+@import "tailwindcss";
+@plugin './hero.ts';
+
+html {
+  scrollbar-gutter: stable;
+}
+/* 显式扫描应用源码，避免 Tailwind v4 自动探测在不同 OS（本机 / Linux 镜像）下根目录不一致导致漏扫 */
+@source "../**/*.{js,ts,jsx,tsx}";
+/* HeroUI 主题类名（与官方示例一致） */
+@source '../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx,css}';
+@custom-variant dark (&:is(.dark *));

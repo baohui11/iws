@@ -1,0 +1,2 @@
+npx supabase gen types typescript --db-url "postgresql://postgres:iws123@192.168.16.201:5430/postgres" > src/types/database.ts
+npx supabase db dump --db-url "postgresql://postgres:iws123@192.168.16.201:5430/postgres" -s public -f supabase/migrations/init.sql 

@@ -1,0 +1,8 @@
+# 单仓根目录；缺少 packages 时 pnpm 9 会报「packages field missing or empty」
+packages:
+  - '.'
+
+ignoredBuiltDependencies:
+  - '@heroui/shared-utils'
+  - sharp
+  - unrs-resolver
