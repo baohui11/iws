@@ -1,0 +1,11 @@
+{
+  // 原先错放在根目录文件 `.vscode` 里的编辑器设置，迁到此处使其真正生效
+  "editor.tabSize": 1,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+
+  // 仅隐藏构建缓存噪音
+  "files.exclude": {
+    ".next": true
+  }
+}

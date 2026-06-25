@@ -1,0 +1,64 @@
+# 本地开发基础设施。当前只起 PostgreSQL 17（含 pgvector）。
+# 后续按目标架构再增量加入 minio / gotenberg 等服务。
+#
+# 用法（在 docker/ 目录下）：
+#   cp .env.example .env
+#   docker compose up -d
+#
+# 连接串示例（写入应用根目录 .env 的 DATABASE_URL）：
+#   postgresql://iws:iws_dev_password@localhost:5432/iws
+
+services:
+  postgres:
+    # PostgreSQL 17 + pgvector 扩展（RAG 向量检索需要）
+    image: pgvector/pgvector:pg17
+    container_name: iws-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-iws}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iws_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-iws}
+      TZ: Asia/Shanghai
+      # 中文排序/比较使用 ICU；保持 UTF-8
+      LANG: C.UTF-8
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # 仅在数据目录为空（首次初始化）时执行
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-iws} -d ${POSTGRES_DB:-iws}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 对象存储（S3 兼容）。文件 / 头像 / 预览产物。
+  # 暂不随手启动；需要时：docker compose up -d minio
+  # 控制台：http://localhost:9001  API：http://localhost:9000
+  minio:
+    image: minio/minio:latest
+    container_name: iws-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # 部分 minio 镜像不含 curl；如不可用可移除此 healthcheck
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_data:
+    name: iws_pg_data
+  minio_data:
+    name: iws_minio_data
