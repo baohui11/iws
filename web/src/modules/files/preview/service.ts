@@ -1,8 +1,8 @@
 import { requireUser } from '@/core/auth'
 import { BusinessError, NotFoundError, ValidationError } from '@/core/errors'
-import { createProjectFileSignedUrl } from '@/core/storage/project-files'
 import { getProjectFilesBucket } from '@/core/storage/buckets'
 import { storage } from '@/core/storage/server'
+import { previewContentUrl } from '@/modules/files/preview/content-type'
 import {
   MAX_CSV_COLS,
   MAX_CSV_ROWS,
@@ -14,7 +14,7 @@ import {
 import { canAccessFileBinary } from '../preview/access'
 import {
   getFileRowForPreview,
-  getLatestParseResultData,
+  getLatestPreviewResultData,
 } from '../preview/repo'
 import {
   getFileRecommendStats,
@@ -74,6 +74,12 @@ export async function loadFilePreview(
       fileExt: row.file_ext,
       canPreview: false,
       uploaderName: row.uploader_name,
+      viewerName: user.name || user.email || user.id,
+      processStatus: {
+        preview: row.preview_status,
+        parse: row.parse_status,
+        index: row.index_status,
+      },
       payload: {
         kind: 'unsupported',
         message:
@@ -86,11 +92,13 @@ export async function loadFilePreview(
   }
 
   const ext = normalizeExt(row.file_ext)
-  const parseData = PREVIEW_EXCEL_EXT.has(ext)
-    ? await getLatestParseResultData(id)
+  const canUsePreviewJson =
+    PREVIEW_EXCEL_EXT.has(ext) || ext === 'csv' || ext === 'tsv'
+  const previewData = canUsePreviewJson
+    ? await getLatestPreviewResultData(id)
     : null
 
-  const hasExcelJson = !!parseData
+  const hasExcelJson = !!previewData
 
   const strategy = resolvePreviewStrategy({
     ext,
@@ -102,29 +110,17 @@ export async function loadFilePreview(
 
   let payload: FilePreviewPayload
 
-  const signedSource = async () =>
-    createProjectFileSignedUrl(row.source_storage_key, 3600)
-
-  const signedPreviewPdf = async () => {
-    const key = row.preview_storage_key?.trim()
-    if (!key) throw new BusinessError('缺少预览文件')
-    return createProjectFileSignedUrl(key, 3600)
-  }
-
   switch (strategy) {
     case 'image': {
-      const url = await signedSource()
-      payload = { kind: 'image', signedUrl: url }
+      payload = { kind: 'image', signedUrl: previewContentUrl(id) }
       break
     }
     case 'pdf_source': {
-      const url = await signedSource()
-      payload = { kind: 'pdf', signedUrl: url }
+      payload = { kind: 'pdf', signedUrl: previewContentUrl(id) }
       break
     }
     case 'pdf_preview': {
-      const url = await signedPreviewPdf()
-      payload = { kind: 'pdf', signedUrl: url }
+      payload = { kind: 'pdf', signedUrl: previewContentUrl(id, 'preview') }
       break
     }
     case 'text':
@@ -145,6 +141,10 @@ export async function loadFilePreview(
       break
     }
     case 'csv': {
+      if (previewData) {
+        payload = { kind: 'excel', data: previewData }
+        break
+      }
       if (row.file_size > MAX_TEXT_PREVIEW_BYTES) {
         payload = {
           kind: 'unsupported',
@@ -160,24 +160,30 @@ export async function loadFilePreview(
       break
     }
     case 'excel': {
-      if (!parseData) {
+      if (!previewData) {
         payload = {
           kind: 'unsupported',
           message: '暂无表格解析数据，请稍后再试',
         }
         break
       }
-      payload = { kind: 'excel', data: parseData }
+      payload = { kind: 'excel', data: previewData }
       break
     }
     case 'media_video': {
-      const url = await signedSource()
-      payload = { kind: 'media', signedUrl: url, media: 'video' }
+      payload = {
+        kind: 'media',
+        signedUrl: previewContentUrl(id),
+        media: 'video',
+      }
       break
     }
     case 'media_audio': {
-      const url = await signedSource()
-      payload = { kind: 'media', signedUrl: url, media: 'audio' }
+      payload = {
+        kind: 'media',
+        signedUrl: previewContentUrl(id),
+        media: 'audio',
+      }
       break
     }
     case 'unsupported_large_media': {
@@ -190,7 +196,10 @@ export async function loadFilePreview(
     case 'unsupported_no_pdf': {
       payload = {
         kind: 'unsupported',
-        message: '暂无 PDF 预览版本，暂不支持在线预览 Office 文稿',
+        message:
+          row.preview_status === 'failed'
+            ? 'PDF 预览生成失败，可先下载原文件查看'
+            : 'PDF 预览生成中，请稍后刷新',
       }
       break
     }
@@ -213,6 +222,12 @@ export async function loadFilePreview(
     fileExt: row.file_ext,
     canPreview: true,
     uploaderName: row.uploader_name,
+    viewerName: user.name || user.email || user.id,
+    processStatus: {
+      preview: row.preview_status,
+      parse: row.parse_status,
+      index: row.index_status,
+    },
     payload,
     interactions,
     recommendStats,

@@ -2,7 +2,7 @@
 
 export function PreviewText({ text }: { text: string }) {
   return (
-    <pre className="max-h-[min(70vh,720px)] overflow-auto rounded-lg border border-default-200 bg-default-50 p-4 text-left text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground dark:bg-default-100/20">
+    <pre className="min-h-0 flex-1 overflow-auto bg-content1 p-5 text-left text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">
       {text}
     </pre>
   )

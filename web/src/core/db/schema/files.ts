@@ -9,13 +9,13 @@ import {
   timestamp,
   unique,
   check,
+  index,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import {
-  filePreviewStatus,
-  fileProcessStatus,
-  fileProcessTaskType,
+  filePipelineStatus,
+  fileProcessStage,
   fileSourceType,
 } from './enums'
 import { projects, contractDeliverables } from './projects'
@@ -34,7 +34,14 @@ export const files = pgTable(
     mimeType: text(),
     sourceStorageKey: text().notNull(),
     previewStorageKey: text(),
-    previewStatus: filePreviewStatus().default('pending'),
+    previewStatus: filePipelineStatus().default('pending').notNull(),
+    previewError: text(),
+    parsedStorageKey: text(),
+    parseStatus: filePipelineStatus().default('pending').notNull(),
+    parseError: text(),
+    indexStatus: filePipelineStatus().default('pending').notNull(),
+    indexError: text(),
+    processingUpdatedAt: timestamp({ withTimezone: true }),
     uploaderId: uuid()
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
@@ -50,7 +57,6 @@ export const files = pgTable(
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     isConfidential: boolean().default(false),
-    extractStatus: text(),
   },
   (t) => [check('chk_version_no_positive', sql`${t.versionNo} > 0`)]
 )
@@ -114,15 +120,36 @@ export const fileProcessTasks = pgTable(
     fileId: uuid()
       .notNull()
       .references(() => files.id, { onDelete: 'cascade' }),
-    taskType: fileProcessTaskType().notNull(),
-    status: fileProcessStatus().default('pending'),
-    resultData: jsonb(),
+    stage: fileProcessStage().notNull(),
+    status: filePipelineStatus().default('pending').notNull(),
+    attempts: integer().default(0).notNull(),
+    maxAttempts: integer().default(3).notNull(),
+    priority: integer().default(0).notNull(),
+    runAfter: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    lockedBy: text(),
+    lockedAt: timestamp({ withTimezone: true }),
+    input: jsonb(),
+    output: jsonb(),
+    errorCode: text(),
     errorMsg: text(),
     startedAt: timestamp({ withTimezone: true }),
     completedAt: timestamp({ withTimezone: true }),
-    createdAt: timestamp({ withTimezone: true }).defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    pgmqMessageId: bigint({ mode: 'number' }),
   },
-  (t) => [unique().on(t.fileId, t.taskType)]
+  (t) => [
+    unique().on(t.fileId, t.stage),
+    index('idx_file_process_tasks_pick').on(
+      t.status,
+      t.runAfter,
+      t.priority,
+      t.createdAt
+    ),
+    index('idx_file_process_tasks_file').on(t.fileId),
+    check('chk_file_process_tasks_attempts', sql`${t.attempts} >= 0`),
+    check('chk_file_process_tasks_max_attempts', sql`${t.maxAttempts} > 0`),
+  ]
 )
 
 export const fileReferenceLinks = pgTable(

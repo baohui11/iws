@@ -3,7 +3,11 @@
 import { useRef, useState } from 'react'
 import { Button, Progress, Tooltip, addToast } from '@heroui/react'
 import { Icon } from '@iconify/react'
-import { uploadReferenceFileAction } from '@/modules/files/upload/actions'
+import {
+  beginReferenceFileUploadAction,
+  completeReferenceFileUploadAction,
+} from '@/modules/files/upload/actions'
+import { uploadFileToSignedUrl } from '@/modules/files/upload/direct-upload-client'
 import type { FileSourceValue } from '@/modules/files/types'
 import FileTypeIcon from '@/modules/files/components/upload/file-type-icon'
 import FileUploadInteractionIcons from '@/modules/files/components/upload/file-upload-interaction-icons'
@@ -136,15 +140,54 @@ export default function WeeklyReferenceUploadPanel({
       setUploadProgress(Math.round((i / total) * 100))
 
       const item = snapshot[i]
-      const fd = new FormData()
-      fd.append('projectId', projectId)
-      fd.append('fileSource', item.fileSource)
-      fd.append('isConfidential', item.isConfidential ? 'true' : 'false')
-      fd.append('recommend', item.recommend ? 'true' : 'false')
-      fd.append('favorite', item.favorite ? 'true' : 'false')
-      fd.append('file', item.file)
+      const begin = await beginReferenceFileUploadAction({
+        projectId,
+        fileName: item.file.name,
+        fileSize: item.file.size,
+        mimeType: item.file.type,
+        fileSource: item.fileSource,
+        isConfidential: item.isConfidential,
+        recommend: item.recommend,
+        favorite: item.favorite,
+      })
+      if (!begin.success) {
+        addToast({
+          title: '上传失败',
+          description: `${item.file.name}：${begin.message ?? ''}`,
+          color: 'danger',
+        })
+        setQueue(snapshot.slice(i))
+        setUploadProgress(Math.round((i / total) * 100))
+        setUploading(false)
+        setUploadStepLabel('')
+        return
+      }
 
-      const result = await uploadReferenceFileAction(fd)
+      try {
+        await uploadFileToSignedUrl({
+          file: item.file,
+          uploadUrl: begin.data.uploadUrl,
+          onProgress: (percent) => {
+            setUploadProgress(Math.round(((i + percent / 100) / total) * 100))
+          },
+        })
+      } catch (e) {
+        addToast({
+          title: '上传失败',
+          description:
+            e instanceof Error ? `${item.file.name}：${e.message}` : item.file.name,
+          color: 'danger',
+        })
+        setQueue(snapshot.slice(i))
+        setUploadProgress(Math.round((i / total) * 100))
+        setUploading(false)
+        setUploadStepLabel('')
+        return
+      }
+
+      const result = await completeReferenceFileUploadAction(
+        begin.data.uploadToken
+      )
       if (!result.success) {
         addToast({
           title: '上传失败',

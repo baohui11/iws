@@ -1,4 +1,4 @@
-# 本地开发基础设施。当前只起 PostgreSQL 17（含 pgvector）。
+# 本地开发基础设施。当前只起 PostgreSQL 17（pgvector / pgmq / pg_cron / zhparser / pg_jieba）。
 # 后续按目标架构再增量加入 minio / gotenberg 等服务。
 #
 # 用法（在 docker/ 目录下）：
@@ -10,10 +10,20 @@
 
 services:
   postgres:
-    # PostgreSQL 17 + pgvector 扩展（RAG 向量检索需要）
-    image: pgvector/pgvector:pg17
+    # PostgreSQL 17 + 扩展；见 postgres/Dockerfile
+    build:
+      context: ./postgres
     container_name: iws-postgres
     restart: unless-stopped
+    # pg_cron 必须在启动时 preload（已有数据卷时改 command 后需 restart）
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_cron
+      - -c
+      - cron.database_name=${POSTGRES_DB:-iws}
+      - -c
+      - cron.timezone=Asia/Shanghai
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-iws}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iws_dev_password}
@@ -37,13 +47,14 @@ services:
   # 暂不随手启动；需要时：docker compose up -d minio
   # 控制台：http://localhost:9001  API：http://localhost:9000
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: iws-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-*}
       TZ: Asia/Shanghai
     ports:
       - "${MINIO_PORT:-9000}:9000"
@@ -56,6 +67,51 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # Office / HTML / Markdown -> PDF conversion service.
+  # Not started by default. Use: docker compose --profile file-processing up -d gotenberg
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: iws-gotenberg
+    profiles: ["file-processing"]
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${GOTENBERG_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  file-worker:
+    build:
+      context: ../file-worker
+    container_name: iws-file-worker
+    profiles: ["file-processing"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-iws}:${POSTGRES_PASSWORD:-iws_dev_password}@postgres:5432/${POSTGRES_DB:-iws}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      S3_PROJECT_FILES_BUCKET: ${S3_PROJECT_FILES_BUCKET:-project-files}
+      S3_FORCE_PATH_STYLE: "true"
+      GOTENBERG_URL: http://gotenberg:3000
+      FILE_WORKER_ID: docker-file-worker
+      FILE_WORKER_POLL_INTERVAL_SECONDS: "2"
+      FILE_WORKER_VISIBILITY_TIMEOUT_SECONDS: "300"
+      FILE_WORKER_MAX_MESSAGES: "5"
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      gotenberg:
+        condition: service_healthy
 
 volumes:
   pg_data:

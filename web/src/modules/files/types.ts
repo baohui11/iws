@@ -73,6 +73,12 @@ export interface FilePreviewLoadResult {
   canPreview: boolean
   /** 上传者展示名 */
   uploaderName: string
+  viewerName: string
+  processStatus: {
+    preview: string | null
+    parse: string | null
+    index: string | null
+  }
   payload: FilePreviewPayload
   interactions: { favorite: boolean; recommend: boolean }
   recommendStats: FilePreviewRecommendStats
@@ -231,6 +237,8 @@ export interface FileRowPreview {
   source_storage_key: string
   preview_storage_key: string | null
   preview_status: string | null
+  parse_status: string | null
+  index_status: string | null
   /** 客户敏感文件 */
   is_confidential: boolean
   uploader_id: string
@@ -286,4 +294,3 @@ export interface InsertReferenceFileInput {
   fileSource: string
   isConfidential: boolean
 }
-

@@ -46,7 +46,7 @@ function hasPdfPreview(
   previewStatus: string | null,
   previewKey: string | null
 ): boolean {
-  return previewStatus === 'success' && !!previewKey?.trim()
+  return previewStatus === 'ready' && !!previewKey?.trim()
 }
 
 export type ResolvedPreviewStrategy =

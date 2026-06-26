@@ -7,7 +7,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { StoragePort } from '@/core/ports'
 import { BusinessError } from '@/core/errors'
-import { getS3 } from './client'
+import { getPublicS3, getS3 } from './client'
 
 /** StoragePort 的 MinIO/S3 实现。 */
 export const storage: StoragePort = {
@@ -31,12 +31,54 @@ export const storage: StoragePort = {
     return Buffer.from(bytes)
   },
 
-  async signedUrl({ bucket, key, expiresInSec = 300 }) {
+  async signedUrl({
+    bucket,
+    key,
+    expiresInSec = 300,
+    responseContentDisposition,
+    responseContentType,
+  }) {
     return getSignedUrl(
-      getS3(),
-      new GetObjectCommand({ Bucket: bucket, Key: key }),
+      getPublicS3(),
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        ...(responseContentDisposition
+          ? { ResponseContentDisposition: responseContentDisposition }
+          : {}),
+        ...(responseContentType
+          ? { ResponseContentType: responseContentType }
+          : {}),
+      }),
       { expiresIn: expiresInSec }
     )
+  },
+
+  async signedPutUrl({ bucket, key, contentType, expiresInSec = 600 }) {
+    return getSignedUrl(
+      getPublicS3(),
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        ContentType: contentType,
+      }),
+      { expiresIn: expiresInSec }
+    )
+  },
+
+  async head({ bucket, key }) {
+    try {
+      const res = await getS3().send(
+        new HeadObjectCommand({ Bucket: bucket, Key: key })
+      )
+      return {
+        contentLength:
+          typeof res.ContentLength === 'number' ? res.ContentLength : null,
+        contentType: res.ContentType ?? null,
+      }
+    } catch {
+      return null
+    }
   },
 
   async remove({ bucket, key }) {

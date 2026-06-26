@@ -1,12 +1,8 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import LayoutNavbar from '@/components/navbar'
 import { getCurrentUser } from '@/core/auth'
-
-const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
-const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: '周报文件系统',
@@ -21,9 +17,7 @@ export default async function RootLayout({
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} bg-background text-foreground min-h-screen font-sans antialiased`}
-      >
+      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <Providers>
           <div className="flex min-h-screen flex-col">
             <LayoutNavbar initialUser={user} />

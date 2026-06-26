@@ -16,7 +16,7 @@ function SheetTable({ sheet }: { sheet: ExcelPreviewSheet }) {
   if (rows?.length) {
     const colCount = Math.max(...rows.map((r) => (Array.isArray(r) ? r.length : 0)))
     return (
-      <div className="max-h-[min(65vh,640px)] overflow-auto rounded-lg border border-default-200">
+      <div className="h-full min-h-[420px] overflow-auto border border-default-200 bg-content1">
         <table className="w-full min-w-[480px] border-collapse text-xs">
           <tbody>
             {rows.map((row, ri) => (
@@ -77,7 +77,7 @@ function SheetTable({ sheet }: { sheet: ExcelPreviewSheet }) {
       grid[c.r]![c.c] = c.v != null ? String(c.v) : ''
     }
     return (
-      <div className="max-h-[min(65vh,640px)] overflow-auto rounded-lg border border-default-200">
+      <div className="h-full min-h-[420px] overflow-auto border border-default-200 bg-content1">
         <table className="w-full border-collapse text-xs">
           <tbody>
             {grid.map((row, ri) => (
@@ -115,7 +115,7 @@ export function PreviewExcel({ data }: { data: unknown }) {
       <Tabs aria-label="工作表">
         {sheets.map((sh, i) => (
           <Tab key={i} title={sh.name?.trim() || `表 ${i + 1}`}>
-            <div className="pt-3">
+      <div className="h-full pt-3">
               <SheetTable sheet={sh} />
             </div>
           </Tab>
@@ -131,7 +131,7 @@ export function PreviewExcel({ data }: { data: unknown }) {
   }
 
   return (
-    <pre className="max-h-[min(60vh,560px)] overflow-auto rounded-lg bg-default-100 p-4 text-xs">
+    <pre className="min-h-[420px] overflow-auto bg-default-100 p-4 text-xs">
       {JSON.stringify(data, null, 2)}
     </pre>
   )

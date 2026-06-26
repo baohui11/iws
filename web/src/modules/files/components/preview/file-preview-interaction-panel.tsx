@@ -32,9 +32,33 @@ export interface FilePreviewInteractionPanelProps {
   onTopLevelCommentAdded: (comment: FilePreviewCommentRow) => void
 }
 
-function formatCommentTime(iso: string) {
-  if (!iso) return ''
-  return formatUploadDateShort(iso)
+function CommentTime({ value }: { value: string }) {
+  return (
+    <time className="text-[11px] text-default-400">
+      {formatUploadDateShort(value)}
+    </time>
+  )
+}
+
+function CommentAvatar({
+  name,
+  src,
+  size = 'sm',
+}: {
+  name: string
+  src: string | null
+  size?: 'sm' | 'md'
+}) {
+  return (
+    <Avatar
+      className={size === 'md' ? 'size-9 shrink-0' : 'size-7 shrink-0'}
+      radius="full"
+      size={size}
+      src={src ?? undefined}
+      name={name}
+      showFallback
+    />
+  )
 }
 
 export default function FilePreviewInteractionPanel({
@@ -46,12 +70,9 @@ export default function FilePreviewInteractionPanel({
   onSocialUpdate,
   onTopLevelCommentAdded,
 }: FilePreviewInteractionPanelProps) {
-  const [pending, setPending] = useState<'favorite' | 'recommend' | null>(
-    null
-  )
+  const [pending, setPending] = useState<'favorite' | 'recommend' | null>(null)
   const [rootDraft, setRootDraft] = useState('')
   const [rootSubmitting, setRootSubmitting] = useState(false)
-
   const [expandedRootIds, setExpandedRootIds] = useState<Set<string>>(
     () => new Set()
   )
@@ -59,7 +80,6 @@ export default function FilePreviewInteractionPanel({
     Record<string, FilePreviewCommentRow[]>
   >({})
   const [threadLoadingId, setThreadLoadingId] = useState<string | null>(null)
-
   const [replyParentId, setReplyParentId] = useState<string | null>(null)
   const [replyRootId, setReplyRootId] = useState<string | null>(null)
   const [replyDraft, setReplyDraft] = useState('')
@@ -122,12 +142,11 @@ export default function FilePreviewInteractionPanel({
       return
     }
     const row = res.data
-    const root = row.rootCommentId
     setThreadByRoot((prev) => ({
       ...prev,
-      [root]: [...(prev[root] ?? []), row],
+      [row.rootCommentId]: [...(prev[row.rootCommentId] ?? []), row],
     }))
-    setExpandedRootIds((e) => new Set(e).add(root))
+    setExpandedRootIds((prev) => new Set(prev).add(row.rootCommentId))
     setReplyDraft('')
     setReplyParentId(null)
     setReplyRootId(null)
@@ -137,9 +156,9 @@ export default function FilePreviewInteractionPanel({
     async (rootId: string) => {
       if (expandedRootIds.has(rootId)) {
         setExpandedRootIds((prev) => {
-          const n = new Set(prev)
-          n.delete(rootId)
-          return n
+          const next = new Set(prev)
+          next.delete(rootId)
+          return next
         })
         return
       }
@@ -155,191 +174,211 @@ export default function FilePreviewInteractionPanel({
           })
           return
         }
-        setThreadByRoot((p) => ({ ...p, [rootId]: res.data }))
+        setThreadByRoot((prev) => ({ ...prev, [rootId]: res.data }))
       }
       setExpandedRootIds((prev) => new Set(prev).add(rootId))
     },
     [expandedRootIds, fileId, threadByRoot]
   )
 
-  const startReply = useCallback((parentId: string, rootId: string) => {
-    setReplyParentId(parentId)
-    setReplyRootId(rootId)
-    setReplyDraft('')
-  }, [])
-
-  const cancelReply = useCallback(() => {
-    setReplyParentId(null)
-    setReplyRootId(null)
-    setReplyDraft('')
-  }, [])
-
   return (
-    <div className="flex flex-col bg-transparent">
-      <div className="flex items-center justify-between gap-2 px-4 py-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Button
-            isIconOnly
-            size="sm"
-            variant="light"
-            aria-label={recommend ? '取消推荐' : '推荐'}
-            className={recommend ? 'text-primary-600' : 'text-default-500'}
-            isLoading={pending === 'recommend'}
-            isDisabled={pending !== null}
-            onPress={() => void runToggle('recommend')}
-          >
-            <Icon icon="lucide:thumbs-up" className="size-5" />
-          </Button>
-          <span className="text-xs tabular-nums text-default-600">
-            {recommendStats.count}
-          </span>
-          <div className="flex min-w-0 flex-1 items-center -space-x-1.5 overflow-hidden ps-0.5 rtl:space-x-reverse">
-            {recommendStats.sampleUsers.length > 0 ? (
-              recommendStats.sampleUsers.map((u) => (
-                <Avatar
-                  key={u.userId}
-                  className="size-7 ring-2 ring-content1"
-                  radius="full"
-                  size="sm"
-                  src={u.avatarUrl ?? undefined}
-                  name={u.name}
-                />
-              ))
-            ) : (
-              <span className="text-[11px] text-default-400">—</span>
-            )}
+    <div className="flex flex-col">
+      <section className="space-y-3 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-default-500">互动</p>
+            <p className="mt-1 text-xs text-default-400">
+              {recommendStats.count} 人推荐
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              isIconOnly
+              size="sm"
+              variant={recommend ? 'flat' : 'light'}
+              color={recommend ? 'primary' : 'default'}
+              aria-label={recommend ? '取消推荐' : '推荐'}
+              isLoading={pending === 'recommend'}
+              isDisabled={pending !== null}
+              onPress={() => void runToggle('recommend')}
+            >
+              <Icon icon="lucide:thumbs-up" className="size-4" />
+            </Button>
+            <Button
+              isIconOnly
+              size="sm"
+              variant={favorite ? 'flat' : 'light'}
+              color={favorite ? 'warning' : 'default'}
+              aria-label={favorite ? '取消收藏' : '收藏'}
+              isLoading={pending === 'favorite'}
+              isDisabled={pending !== null}
+              onPress={() => void runToggle('favorite')}
+            >
+              <Icon
+                icon={favorite ? 'lucide:star' : 'lucide:star'}
+                className={favorite ? 'size-4 fill-current' : 'size-4'}
+              />
+            </Button>
           </div>
         </div>
-        <Button
-          isIconOnly
-          size="sm"
-          variant="light"
-          aria-label={favorite ? '已收藏' : '收藏'}
-          className={favorite ? 'text-warning-500' : 'text-default-400'}
-          isLoading={pending === 'favorite'}
-          isDisabled={pending !== null}
-          onPress={() => void runToggle('favorite')}
-        >
-          <Icon
-            icon={favorite ? 'mdi:star' : 'mdi:star-outline'}
-            className="size-6"
-          />
-        </Button>
-      </div>
+
+        {recommendStats.sampleUsers.length > 0 ? (
+          <div className="flex min-w-0 items-center -space-x-1.5 overflow-hidden ps-0.5 rtl:space-x-reverse">
+            {recommendStats.sampleUsers.map((u) => (
+              <Avatar
+                key={u.userId}
+                className="size-7 ring-2 ring-content1"
+                radius="full"
+                size="sm"
+                src={u.avatarUrl ?? undefined}
+                name={u.name}
+              />
+            ))}
+          </div>
+        ) : null}
+      </section>
 
       <Divider />
 
-      <div className="px-4 py-3">
-        <p className="mb-3 text-xs text-default-500">评论</p>
+      <section className="space-y-3 p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-default-500">评论</p>
+          <span className="text-xs text-default-400">
+            {topLevelComments.length}
+          </span>
+        </div>
+
+        <Textarea
+          minRows={2}
+          maxRows={5}
+          maxLength={MAX_DRAFT}
+          size="sm"
+          placeholder="写评论"
+          value={rootDraft}
+          onValueChange={setRootDraft}
+          description={`${rootDraft.length}/${MAX_DRAFT}`}
+        />
+        <Button
+          size="sm"
+          color="primary"
+          className="w-full"
+          isLoading={rootSubmitting}
+          isDisabled={!rootDraft.trim()}
+          onPress={() => void submitRoot()}
+        >
+          发布评论
+        </Button>
+      </section>
+
+      <Divider />
+
+      <section className="p-4">
         {topLevelComments.length === 0 ? (
-          <p className="py-6 text-center text-sm text-default-400">
-            还没有评论
-          </p>
+          <div className="rounded-lg border border-dashed border-default-200 px-3 py-8 text-center">
+            <p className="text-sm text-default-400">暂无评论</p>
+          </div>
         ) : (
           <ul className="space-y-4">
-            {topLevelComments.map((c) => {
-              const open = expandedRootIds.has(c.id)
-              const thread = threadByRoot[c.id]
-              const loading = threadLoadingId === c.id
+            {topLevelComments.map((comment) => {
+              const open = expandedRootIds.has(comment.id)
+              const thread = threadByRoot[comment.id]
+              const loading = threadLoadingId === comment.id
+              const replying = replyParentId && replyRootId === comment.id
 
               return (
-                <li key={c.id} className="border-b border-default-100 pb-4 last:border-0">
-                  <div className="flex gap-3">
-                    <Avatar
-                      className="size-10 shrink-0"
-                      radius="full"
+                <li key={comment.id} className="space-y-3">
+                  <div className="flex gap-2.5">
+                    <CommentAvatar
+                      name={comment.userName}
+                      src={comment.avatarUrl}
                       size="md"
-                      src={c.avatarUrl ?? undefined}
-                      name={c.userName}
-                      showFallback
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <span className="text-sm font-semibold text-foreground">
-                          {c.userName}
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {comment.userName}
                         </span>
-                        <time className="text-[11px] text-default-400">
-                          {formatCommentTime(c.createdAt)}
-                        </time>
+                        <CommentTime value={comment.createdAt} />
                       </div>
-                      <p className="mt-1.5 whitespace-pre-wrap break-words text-sm text-default-800">
-                        {c.content}
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-default-700">
+                        {comment.content}
                       </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <div className="mt-2 flex items-center gap-3">
                         <button
                           type="button"
-                          className="text-xs font-medium text-primary-600 hover:underline"
-                          onClick={() => startReply(c.id, c.id)}
+                          className="text-xs font-medium text-primary hover:underline"
+                          onClick={() => {
+                            setReplyParentId(comment.id)
+                            setReplyRootId(comment.id)
+                            setReplyDraft('')
+                          }}
                         >
                           回复
                         </button>
                         <button
                           type="button"
                           className="text-xs text-default-500 hover:text-foreground"
-                          onClick={() => void toggleThread(c.id)}
+                          onClick={() => void toggleThread(comment.id)}
                         >
                           {open ? '收起回复' : '展开回复'}
-                          {loading ? '…' : null}
+                          {loading ? '...' : ''}
                         </button>
                       </div>
-
-                      {open && thread && thread.length > 0 ? (
-                        <ul className="mt-3 space-y-3 border-t border-default-100 pt-3">
-                          {thread.map((r) => (
-                            <li key={r.id} className="flex gap-2.5">
-                              <Avatar
-                                className="size-8 shrink-0"
-                                radius="full"
-                                size="sm"
-                                src={r.avatarUrl ?? undefined}
-                                name={r.userName}
-                                showFallback
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-baseline gap-x-2">
-                                  <span className="text-sm font-medium text-foreground">
-                                    {r.userName}
-                                  </span>
-                                  <time className="text-[11px] text-default-400">
-                                    {formatCommentTime(r.createdAt)}
-                                  </time>
-                                </div>
-                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-default-700">
-                                  {r.replyToUserName ? (
-                                    <span className="font-medium text-primary-600">
-                                      @{r.replyToUserName}{' '}
-                                    </span>
-                                  ) : null}
-                                  {r.content}
-                                </p>
-                                <button
-                                  type="button"
-                                  className="mt-1.5 text-xs font-medium text-primary-600 hover:underline"
-                                  onClick={() => startReply(r.id, c.id)}
-                                >
-                                  回复
-                                </button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                      {open && thread && thread.length === 0 && !loading ? (
-                        <p className="mt-2 text-xs text-default-400">
-                          暂无回复
-                        </p>
-                      ) : null}
                     </div>
                   </div>
 
-                  {replyParentId && replyRootId === c.id ? (
-                    <div className="mt-3 rounded-lg bg-default-100/80 p-3">
+                  {open && thread && thread.length > 0 ? (
+                    <ul className="ms-11 space-y-3 border-s border-default-200 ps-3">
+                      {thread.map((reply) => (
+                        <li key={reply.id} className="flex gap-2">
+                          <CommentAvatar
+                            name={reply.userName}
+                            src={reply.avatarUrl}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-baseline gap-x-2">
+                              <span className="text-sm font-medium text-foreground">
+                                {reply.userName}
+                              </span>
+                              <CommentTime value={reply.createdAt} />
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-default-700">
+                              {reply.replyToUserName ? (
+                                <span className="font-medium text-primary">
+                                  @{reply.replyToUserName}{' '}
+                                </span>
+                              ) : null}
+                              {reply.content}
+                            </p>
+                            <button
+                              type="button"
+                              className="mt-1 text-xs font-medium text-primary hover:underline"
+                              onClick={() => {
+                                setReplyParentId(reply.id)
+                                setReplyRootId(comment.id)
+                                setReplyDraft('')
+                              }}
+                            >
+                              回复
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {open && thread && thread.length === 0 && !loading ? (
+                    <p className="ms-11 text-xs text-default-400">暂无回复</p>
+                  ) : null}
+
+                  {replying ? (
+                    <div className="ms-11 rounded-lg bg-default-100 p-3">
                       <Textarea
                         minRows={2}
                         maxRows={5}
                         maxLength={MAX_DRAFT}
                         size="sm"
-                        placeholder="输入回复…"
+                        placeholder="输入回复"
                         value={replyDraft}
                         onValueChange={setReplyDraft}
                       />
@@ -347,7 +386,11 @@ export default function FilePreviewInteractionPanel({
                         <Button
                           size="sm"
                           variant="light"
-                          onPress={cancelReply}
+                          onPress={() => {
+                            setReplyParentId(null)
+                            setReplyRootId(null)
+                            setReplyDraft('')
+                          }}
                         >
                           取消
                         </Button>
@@ -368,30 +411,7 @@ export default function FilePreviewInteractionPanel({
             })}
           </ul>
         )}
-      </div>
-
-      <div className="border-t border-default-100 px-4 pb-4 pt-2">
-        <Textarea
-          minRows={2}
-          maxRows={4}
-          maxLength={MAX_DRAFT}
-          size="sm"
-          placeholder="写评论…"
-          value={rootDraft}
-          onValueChange={setRootDraft}
-          description={`${rootDraft.length}/${MAX_DRAFT}`}
-        />
-        <Button
-          className="mt-2"
-          size="sm"
-          color="primary"
-          isLoading={rootSubmitting}
-          isDisabled={!rootDraft.trim()}
-          onPress={() => void submitRoot()}
-        >
-          发布
-        </Button>
-      </div>
+      </section>
     </div>
   )
 }

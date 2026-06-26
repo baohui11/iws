@@ -7,6 +7,12 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- 模糊匹配 / 关键词检索辅助
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- 说明：pgmq（队列）、pg_cron（定时）、zhparser/pg_jieba（中文分词）
--- 不在 pgvector 官方镜像中，后续如需启用，改用自定义 Dockerfile 安装这些扩展后再
--- CREATE EXTENSION。当前阶段先满足「PG 17 + 向量 + 模糊检索」。
+-- 消息队列（pgmq）
+CREATE EXTENSION IF NOT EXISTS pgmq;
+
+-- 定时任务（pg_cron；需 shared_preload_libraries，见 docker-compose.yml command）
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- 中文全文检索分词
+CREATE EXTENSION IF NOT EXISTS zhparser;
+CREATE EXTENSION IF NOT EXISTS pg_jieba;

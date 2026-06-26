@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getCurrentUser } from '@/core/auth'
-import { storage, prepareDownloadBuffer } from '@/core/storage/server'
-import { getProjectFilesBucket } from '@/core/storage/buckets'
+import { createProjectFileSignedUrl } from '@/core/storage/server'
 import { recordFileDownload } from '@/modules/files/download/service'
 import { canAccessFileBinary } from '@/modules/files/preview/access'
 import { getFileRowForPreview } from '@/modules/files/preview/repo'
@@ -18,10 +17,15 @@ function clientIp(req: NextRequest): string | null {
   return req.headers.get('x-real-ip')
 }
 
-function contentDispositionAttachment(fileName: string): string {
-  const ascii = fileName.replace(/[^\x20-\x7E]/g, '_') || 'download'
-  const star = encodeURIComponent(fileName)
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${star}`
+function safeDownloadFileName(fileName: string): string {
+  const trimmed = fileName.trim().replace(/[/\\]/g, '_')
+  return trimmed || 'download'
+}
+
+function wantsJsonResponse(req: NextRequest): boolean {
+  if (req.nextUrl.searchParams.get('format') === 'json') return true
+  const accept = req.headers.get('accept') ?? ''
+  return accept.includes('application/json')
 }
 
 export async function GET(
@@ -48,28 +52,8 @@ export async function GET(
     return NextResponse.json({ message: '无权下载该文件' }, { status: 403 })
   }
 
-  const bucket = getProjectFilesBucket()
-  let bytes: Uint8Array
-  try {
-    const buffer = await storage.get({
-      bucket,
-      key: row.source_storage_key,
-    })
-    bytes = new Uint8Array(buffer)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : '读取文件失败'
-    return NextResponse.json({ message: msg || '读取文件失败' }, { status: 500 })
-  }
-
   const ext = (row.file_ext || 'bin').replace(/^\./, '')
-
-  let out: Buffer
-  try {
-    out = await prepareDownloadBuffer(bytes, ext)
-  } catch (e) {
-    console.error('[file download] prepare failed', e)
-    return NextResponse.json({ message: '处理文件失败' }, { status: 500 })
-  }
+  const fileName = safeDownloadFileName(row.file_name || `file.${ext}`)
 
   try {
     await recordFileDownload({
@@ -82,16 +66,25 @@ export async function GET(
     return NextResponse.json({ message: '记录下载失败' }, { status: 500 })
   }
 
-  const mime = row.mime_type?.trim() || 'application/octet-stream'
+  let url: string
+  try {
+    // 文件名由前端 a.download 使用原始 fileName；预签名 URL 不再带 response-content-disposition
+    url = await createProjectFileSignedUrl(row.source_storage_key, 300)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '无法生成下载链接'
+    return NextResponse.json({ message: msg || '无法生成下载链接' }, { status: 500 })
+  }
 
-  return new NextResponse(new Uint8Array(out), {
-    status: 200,
+  if (wantsJsonResponse(req)) {
+    return NextResponse.json(
+      { url, fileName },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
+  }
+
+  return NextResponse.redirect(url, {
+    status: 302,
     headers: {
-      'Content-Type': mime,
-      'Content-Disposition': contentDispositionAttachment(
-        row.file_name || `file.${ext}`
-      ),
-      'Content-Length': String(out.length),
       'Cache-Control': 'no-store',
     },
   })

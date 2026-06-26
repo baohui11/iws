@@ -1,16 +1,21 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useRef, useState } from 'react'
 import {
   Button,
   Input,
+  Progress,
   Select,
   SelectItem,
   Tooltip,
   addToast,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
-import { uploadDeliverableFileAction } from '@/modules/files/upload/actions'
+import {
+  beginDeliverableFileUploadAction,
+  completeDeliverableFileUploadAction,
+} from '@/modules/files/upload/actions'
+import { uploadFileToSignedUrl } from '@/modules/files/upload/direct-upload-client'
 import DeliverableReferencePickerModal from '@/modules/files/components/upload/deliverable-reference-picker-modal'
 import FileTypeIcon from '@/modules/files/components/upload/file-type-icon'
 import FileUploadInteractionIcons from '@/modules/files/components/upload/file-upload-interaction-icons'
@@ -120,9 +125,10 @@ export default function WeeklyDeliverableUploadPanel({
   optionsLoading,
   onRefreshOptions,
 }: WeeklyDeliverableUploadPanelProps) {
-  const [isPending, startTransition] = useTransition()
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [refModalItemId, setRefModalItemId] = useState<string | null>(null)
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const updateItem = (id: string, patch: Partial<QueueItem>) => {
@@ -166,7 +172,7 @@ export default function WeeklyDeliverableUploadPanel({
     (f) => f.contract_deliverable_id === null
   )
 
-  const submitOne = (item: QueueItem) => {
+  const submitOne = async (item: QueueItem) => {
     if (!item.parsed) {
       addToast({
         title: '文件名不符合规则',
@@ -184,22 +190,41 @@ export default function WeeklyDeliverableUploadPanel({
       addToast({ title: '逻辑名不一致', description: linkErr, color: 'danger' })
       return
     }
-    startTransition(async () => {
-      const fd = new FormData()
-      fd.append('projectId', projectId)
-      fd.append(
-        'deliverableMode',
-        item.isContractDeliverable ? 'contract' : 'standalone'
+    setUploadingItemId(item.id)
+    setUploadProgress(0)
+    try {
+      const begin = await beginDeliverableFileUploadAction({
+        projectId,
+        fileName: item.file.name,
+        fileSize: item.file.size,
+        mimeType: item.file.type,
+        deliverableMode: item.isContractDeliverable ? 'contract' : 'standalone',
+        contractDeliverableId: item.contractDeliverableId,
+        existingDeliverableFileId: item.existingDeliverableFileId,
+        referenceFileIds: [...item.referenceFileIds],
+        versionLabel: item.versionLabelInput,
+        isConfidential: item.isConfidential,
+        recommend: item.recommend,
+        favorite: item.favorite,
+      })
+      if (!begin.success) {
+        addToast({
+          title: '提交失败',
+          description: begin.message,
+          color: 'danger',
+        })
+        return
+      }
+
+      await uploadFileToSignedUrl({
+        file: item.file,
+        uploadUrl: begin.data.uploadUrl,
+        onProgress: setUploadProgress,
+      })
+
+      const result = await completeDeliverableFileUploadAction(
+        begin.data.uploadToken
       )
-      fd.append('contractDeliverableId', item.contractDeliverableId)
-      fd.append('existingDeliverableFileId', item.existingDeliverableFileId)
-      fd.append('referenceFileIds', [...item.referenceFileIds].join(','))
-      fd.append('versionLabel', item.versionLabelInput)
-      fd.append('isConfidential', item.isConfidential ? 'true' : 'false')
-      fd.append('recommend', item.recommend ? 'true' : 'false')
-      fd.append('favorite', item.favorite ? 'true' : 'false')
-      fd.append('file', item.file)
-      const result = await uploadDeliverableFileAction(fd)
       if (result.success) {
         addToast({ title: '已提交', color: 'success', timeout: 2200 })
         removeItem(item.id)
@@ -211,10 +236,19 @@ export default function WeeklyDeliverableUploadPanel({
           color: 'danger',
         })
       }
-    })
+    } catch (e) {
+      addToast({
+        title: '提交失败',
+        description: e instanceof Error ? e.message : '上传失败',
+        color: 'danger',
+      })
+    } finally {
+      setUploadingItemId(null)
+      setUploadProgress(0)
+    }
   }
 
-  const busy = isPending || optionsLoading
+  const busy = uploadingItemId !== null || optionsLoading
 
   const resolveSelectedReferenceRows = (ids: Set<string>) => {
     return [...ids].map((id) => {
@@ -346,6 +380,19 @@ export default function WeeklyDeliverableUploadPanel({
                 )}
                 {item.parsed && linkMismatch ? (
                   <p className="mb-2 text-xs text-danger">{linkMismatch}</p>
+                ) : null}
+                {uploadingItemId === item.id ? (
+                  <div className="mb-3 space-y-1 rounded-lg border border-default-200 bg-default-50/50 p-3">
+                    <Progress
+                      aria-label="上传进度"
+                      size="sm"
+                      value={uploadProgress}
+                      color="primary"
+                    />
+                    <p className="text-xs text-default-500">
+                      正在上传 {uploadProgress}%
+                    </p>
+                  </div>
                 ) : null}
 
                 <div className="mt-3 space-y-2">
@@ -617,7 +664,7 @@ export default function WeeklyDeliverableUploadPanel({
                     size="sm"
                     isLoading={busy}
                     isDisabled={busy || !item.parsed || !!linkMismatch}
-                    onPress={() => submitOne(item)}
+                    onPress={() => void submitOne(item)}
                   >
                     提交此文件
                   </Button>

@@ -1,25 +1,17 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 
-export const filePreviewStatus = pgEnum('file_preview_status', [
+export const filePipelineStatus = pgEnum('file_pipeline_status', [
   'pending',
   'processing',
-  'success',
-  'failure',
+  'ready',
+  'failed',
+  'skipped',
 ])
 
-export const fileProcessStatus = pgEnum('file_process_status', [
-  'pending',
-  'processing',
-  'success',
-  'failure',
-])
-
-export const fileProcessTaskType = pgEnum('file_process_task_type', [
-  'duplicate_check',
-  'preview_generate',
+export const fileProcessStage = pgEnum('file_process_stage', [
+  'preview',
   'parse',
   'index',
-  'vectorize',
 ])
 
 export const fileSourceType = pgEnum('file_source_type', [

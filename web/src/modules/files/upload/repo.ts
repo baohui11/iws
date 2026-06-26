@@ -365,6 +365,9 @@ export async function insertDeliverableFileRow(
     fileSource: input.fileSource as FileSourceValue,
     isConfidential: input.isConfidential,
     previewStatus: 'pending',
+    parseStatus: 'pending',
+    indexStatus: 'pending',
+    processingUpdatedAt: new Date(),
   })
 }
 
@@ -391,6 +394,9 @@ export async function insertReferenceFileRow(
     fileSource: input.fileSource as FileSourceValue,
     isConfidential: input.isConfidential,
     previewStatus: 'pending',
+    parseStatus: 'pending',
+    indexStatus: 'pending',
+    processingUpdatedAt: new Date(),
   })
 }
 

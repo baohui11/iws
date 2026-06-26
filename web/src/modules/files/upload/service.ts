@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { SignJWT, jwtVerify } from 'jose'
 import { and, eq, isNull } from 'drizzle-orm'
 import { requireUser } from '@/core/auth'
 import { getDb } from '@/core/db/client'
@@ -11,7 +12,9 @@ import {
   PROJECT_FILE_ALLOWED_EXT_HINT,
 } from '@/core/storage/constants'
 import {
+  createProjectFileUploadUrl,
   decryptClientFileToBuffer,
+  getProjectFileObjectInfo,
   uploadProjectFileBuffer,
 } from '@/core/storage/server'
 import {
@@ -20,6 +23,7 @@ import {
   parseDeliverableFilename,
 } from '@/modules/files/lib/deliverable-filename'
 import { resolveDeliverableVersionLabelForDb } from '@/modules/files/lib/deliverable-version-label'
+import { enqueueInitialProcessingForFile } from '@/modules/files/processing/service'
 import {
   fileExtLower,
   getBasenameOnly,
@@ -32,6 +36,197 @@ function parseFormBool(v: FormDataEntryValue | null): boolean {
     .trim()
     .toLowerCase()
   return s === 'true' || s === '1' || s === 'on'
+}
+
+const DIRECT_UPLOAD_TOKEN_MAX_AGE = '15m'
+const DIRECT_UPLOAD_URL_EXPIRES_SECONDS = 10 * 60
+
+export interface BeginReferenceFileUploadInput {
+  projectId: string
+  fileName: string
+  fileSize: number
+  mimeType?: string | null
+  fileSource: FileSourceValue
+  isConfidential: boolean
+  recommend: boolean
+  favorite: boolean
+}
+
+export interface BeginDeliverableFileUploadInput {
+  projectId: string
+  fileName: string
+  fileSize: number
+  mimeType?: string | null
+  deliverableMode: 'contract' | 'standalone'
+  contractDeliverableId?: string
+  existingDeliverableFileId?: string
+  referenceFileIds?: string[]
+  versionLabel?: string
+  isConfidential: boolean
+  recommend: boolean
+  favorite: boolean
+}
+
+type DirectUploadTokenPayload =
+  | {
+      purpose: 'project-file-upload'
+      kind: 'reference'
+      userId: string
+      fileId: string
+      projectId: string
+      objectPath: string
+      fileName: string
+      fileSize: number
+      fileExt: string | null
+      mimeType: string
+      fileSource: FileSourceValue
+      isConfidential: boolean
+      recommend: boolean
+      favorite: boolean
+    }
+  | {
+      purpose: 'project-file-upload'
+      kind: 'deliverable'
+      userId: string
+      fileId: string
+      projectId: string
+      objectPath: string
+      fileName: string
+      fileSize: number
+      fileExt: string | null
+      mimeType: string
+      deliverableMode: 'contract' | 'standalone'
+      contractDeliverableId: string
+      existingDeliverableFileId: string
+      referenceFileIds: string[]
+      versionLabel: string
+      isConfidential: boolean
+      recommend: boolean
+      favorite: boolean
+    }
+
+function getUploadTokenSecret(): Uint8Array {
+  const raw = process.env.FILE_UPLOAD_TOKEN_SECRET || process.env.AUTH_SECRET
+  if (!raw?.trim()) throw new BusinessError('FILE_UPLOAD_TOKEN_SECRET 未配置')
+  return new TextEncoder().encode(raw)
+}
+
+async function signDirectUploadToken(
+  payload: DirectUploadTokenPayload
+): Promise<string> {
+  return new SignJWT(payload as unknown as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(DIRECT_UPLOAD_TOKEN_MAX_AGE)
+    .sign(getUploadTokenSecret())
+}
+
+async function verifyDirectUploadToken(
+  token: string
+): Promise<DirectUploadTokenPayload> {
+  try {
+    const { payload } = await jwtVerify(token, getUploadTokenSecret())
+    if (
+      payload.purpose !== 'project-file-upload' ||
+      typeof payload.kind !== 'string' ||
+      typeof payload.userId !== 'string' ||
+      typeof payload.fileId !== 'string' ||
+      typeof payload.projectId !== 'string' ||
+      typeof payload.objectPath !== 'string' ||
+      typeof payload.fileName !== 'string' ||
+      typeof payload.fileSize !== 'number' ||
+      typeof payload.mimeType !== 'string'
+    ) {
+      throw new Error('invalid upload token')
+    }
+    if (payload.kind === 'reference') {
+      return {
+        purpose: 'project-file-upload',
+        kind: 'reference',
+        userId: payload.userId,
+        fileId: payload.fileId,
+        projectId: payload.projectId,
+        objectPath: payload.objectPath,
+        fileName: payload.fileName,
+        fileSize: payload.fileSize,
+        fileExt:
+          typeof payload.fileExt === 'string' ? payload.fileExt : null,
+        mimeType: payload.mimeType,
+        fileSource: payload.fileSource as FileSourceValue,
+        isConfidential: payload.isConfidential === true,
+        recommend: payload.recommend === true,
+        favorite: payload.favorite === true,
+      }
+    }
+    if (payload.kind === 'deliverable') {
+      return {
+        purpose: 'project-file-upload',
+        kind: 'deliverable',
+        userId: payload.userId,
+        fileId: payload.fileId,
+        projectId: payload.projectId,
+        objectPath: payload.objectPath,
+        fileName: payload.fileName,
+        fileSize: payload.fileSize,
+        fileExt:
+          typeof payload.fileExt === 'string' ? payload.fileExt : null,
+        mimeType: payload.mimeType,
+        deliverableMode:
+          payload.deliverableMode === 'standalone' ? 'standalone' : 'contract',
+        contractDeliverableId:
+          typeof payload.contractDeliverableId === 'string'
+            ? payload.contractDeliverableId
+            : '',
+        existingDeliverableFileId:
+          typeof payload.existingDeliverableFileId === 'string'
+            ? payload.existingDeliverableFileId
+            : '',
+        referenceFileIds: Array.isArray(payload.referenceFileIds)
+          ? payload.referenceFileIds.filter(
+              (v): v is string => typeof v === 'string' && !!v.trim()
+            )
+          : [],
+        versionLabel:
+          typeof payload.versionLabel === 'string' ? payload.versionLabel : '',
+        isConfidential: payload.isConfidential === true,
+        recommend: payload.recommend === true,
+        favorite: payload.favorite === true,
+      }
+    }
+  } catch {
+    throw new ValidationError('上传令牌无效或已过期')
+  }
+  throw new ValidationError('上传令牌无效或已过期')
+}
+
+function normalizeFileSize(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new ValidationError('文件为空')
+  }
+  const size = Math.trunc(value)
+  const maxBytes = getMaxProjectFileBytes()
+  if (size > maxBytes) {
+    throw new ValidationError(
+      `单文件大小不能超过 ${formatMaxProjectFileLabel()}`
+    )
+  }
+  return size
+}
+
+function normalizeMimeType(value: string | null | undefined): string {
+  const mime = value?.trim()
+  return mime || 'application/octet-stream'
+}
+
+async function assertUploadedObjectMatches(input: {
+  objectPath: string
+  fileSize: number
+}): Promise<void> {
+  const info = await getProjectFileObjectInfo(input.objectPath)
+  if (!info) throw new ValidationError('文件尚未上传完成')
+  if (info.contentLength !== input.fileSize) {
+    throw new ValidationError('上传文件大小与申请信息不一致')
+  }
 }
 
 async function assertMemberActiveProject(
@@ -90,6 +285,342 @@ export async function loadFileUploadOptions(projectId: string) {
     referenceFiles,
   }
   return payload
+}
+
+export async function beginReferenceFileUpload(
+  input: BeginReferenceFileUploadInput
+) {
+  const user = await requireUser()
+  const projectId = input.projectId?.trim()
+  if (!projectId) throw new ValidationError('请选择项目')
+  await assertMemberActiveProject(user.id, projectId)
+
+  const allowedSources: FileSourceValue[] = ['client', 'internal', 'public']
+  if (!allowedSources.includes(input.fileSource)) {
+    throw new ValidationError('请选择文件来源')
+  }
+
+  const fileSize = normalizeFileSize(input.fileSize)
+  const extLower = fileExtLower(input.fileName)
+  if (!isAllowedProjectFileExtension(extLower)) {
+    throw new ValidationError(PROJECT_FILE_ALLOWED_EXT_HINT)
+  }
+
+  const displayName = getBasenameOnly(input.fileName)
+  const dup = await repo.existsReferenceDuplicateName(projectId, displayName)
+  if (dup) {
+    throw new BusinessError('该项目下已存在同名参考资料，请修改文件名后重试')
+  }
+
+  const fileId = randomUUID()
+  const objectPath = `${projectId}/reference/${fileId}.${extLower ?? 'bin'}`
+  const mimeType = normalizeMimeType(input.mimeType)
+  const uploadUrl = await createProjectFileUploadUrl(
+    objectPath,
+    mimeType,
+    DIRECT_UPLOAD_URL_EXPIRES_SECONDS
+  )
+  const uploadToken = await signDirectUploadToken({
+    purpose: 'project-file-upload',
+    kind: 'reference',
+    userId: user.id,
+    fileId,
+    projectId,
+    objectPath,
+    fileName: displayName,
+    fileSize,
+    fileExt: extLower,
+    mimeType,
+    fileSource: input.fileSource,
+    isConfidential: input.isConfidential,
+    recommend: input.recommend,
+    favorite: input.favorite,
+  })
+
+  return {
+    fileId,
+    objectPath,
+    uploadUrl,
+    uploadToken,
+    expiresInSeconds: DIRECT_UPLOAD_URL_EXPIRES_SECONDS,
+  }
+}
+
+export async function completeReferenceFileUpload(uploadToken: string) {
+  const user = await requireUser()
+  const payload = await verifyDirectUploadToken(uploadToken)
+  if (payload.kind !== 'reference') throw new ValidationError('上传类型不一致')
+  if (payload.userId !== user.id) throw new ValidationError('上传用户不一致')
+
+  await assertMemberActiveProject(user.id, payload.projectId)
+  await assertUploadedObjectMatches({
+    objectPath: payload.objectPath,
+    fileSize: payload.fileSize,
+  })
+
+  const dup = await repo.existsReferenceDuplicateName(
+    payload.projectId,
+    payload.fileName
+  )
+  if (dup) {
+    throw new BusinessError('该项目下已存在同名参考资料，请修改文件名后重试')
+  }
+
+  await repo.insertReferenceFileRow({
+    id: payload.fileId,
+    projectId: payload.projectId,
+    fileName: payload.fileName,
+    fileSize: payload.fileSize,
+    fileExt: payload.fileExt,
+    mimeType: payload.mimeType,
+    sourceStorageKey: payload.objectPath,
+    uploaderId: user.id,
+    fileSource: payload.fileSource,
+    isConfidential: payload.isConfidential,
+  })
+
+  await repo.insertFileInteractionsForUpload({
+    fileId: payload.fileId,
+    userId: user.id,
+    recommend: payload.recommend,
+    favorite: payload.favorite,
+  })
+  await enqueueInitialProcessingForFile(payload.fileId)
+
+  return { id: payload.fileId }
+}
+
+async function prepareDeliverableUpload(input: {
+  userId: string
+  projectId: string
+  fileName: string
+  deliverableMode: 'contract' | 'standalone'
+  contractDeliverableId: string
+  existingDeliverableFileId: string
+  referenceFileIds: string[]
+  versionLabel: string
+}) {
+  const projectId = input.projectId?.trim()
+  if (!projectId) throw new ValidationError('请选择项目')
+  await assertMemberActiveProject(input.userId, projectId)
+
+  const basename = getBasenameOnly(input.fileName)
+  const parsed = parseDeliverableFilename(basename)
+  if (!parsed) throw new ValidationError(DELIVERABLE_FILENAME_RULE_HINT)
+
+  const extLower = fileExtLower(input.fileName)
+  if (!isAllowedProjectFileExtension(extLower)) {
+    throw new ValidationError(PROJECT_FILE_ALLOWED_EXT_HINT)
+  }
+
+  const extForStorage = parsed.ext ?? extLower ?? 'bin'
+  const versionLabelForDb = resolveDeliverableVersionLabelForDb(
+    input.versionLabel,
+    parsed
+  )
+
+  let versionGroupId: string
+  let contractDeliverableIdForInsert: string | null
+  const fileNameForDb = basename
+
+  if (input.deliverableMode === 'standalone' && input.existingDeliverableFileId) {
+    const row = await repo.getDeliverableFileRow(input.existingDeliverableFileId)
+    if (!row || row.project_id !== projectId) {
+      throw new ValidationError('所选成果无效或不属于该项目')
+    }
+    if (!row.is_deliverable) {
+      throw new ValidationError('所选记录不是成果文件')
+    }
+    if (!row.is_latest) {
+      throw new ValidationError('请选择该成果的最新版本')
+    }
+    if (row.contract_deliverable_id !== null) {
+      throw new ValidationError('请选择非合同成果的最新版本')
+    }
+    const linkedLogical = row.file_name
+      ? getDeliverableLogicalBaseFromStoredName(row.file_name)
+      : null
+    if (!linkedLogical) {
+      throw new ValidationError(
+        '无法从已关联成果解析逻辑名，请更换关联项或联系管理员'
+      )
+    }
+    if (parsed.baseName.trim() !== linkedLogical) {
+      throw new ValidationError(
+        `文件的逻辑名「${parsed.baseName.trim()}」须与所关联非合同成果的逻辑名「${linkedLogical}」一致`
+      )
+    }
+    versionGroupId = row.version_group_id
+    contractDeliverableIdForInsert = null
+  } else if (input.deliverableMode === 'contract' && input.contractDeliverableId) {
+    const cdName = await repo.getContractDeliverableName(input.contractDeliverableId)
+    if (!cdName) throw new ValidationError('合同成果项不存在')
+
+    if (parsed.baseName.trim() !== cdName.trim()) {
+      throw new ValidationError(
+        `文件的逻辑名「${parsed.baseName.trim()}」须与所选合同成果项名称「${cdName.trim()}」一致`
+      )
+    }
+
+    const contractProjectId = await repo.getContractDeliverableProjectId(
+      input.contractDeliverableId
+    )
+    if (contractProjectId !== projectId) {
+      throw new ValidationError('合同成果与所选项目不一致')
+    }
+
+    contractDeliverableIdForInsert = input.contractDeliverableId
+    versionGroupId =
+      (await repo.findVersionGroupIdForContractDeliverable(
+        projectId,
+        input.contractDeliverableId
+      )) ?? randomUUID()
+  } else {
+    versionGroupId = randomUUID()
+    contractDeliverableIdForInsert = null
+  }
+
+  const hasDup = await repo.existsDeliverableVersionInGroup(
+    versionGroupId,
+    versionLabelForDb
+  )
+  if (hasDup) {
+    throw new BusinessError(
+      '该项目下已存在相同合同成果与相同版本号，请修改文件名中的版本后重试'
+    )
+  }
+
+  const refIds = [...new Set(input.referenceFileIds.filter(Boolean))]
+  if (refIds.length) {
+    for (const rid of refIds) {
+      const rf = await repo.getReferenceFileRow(rid)
+      if (!rf || rf.project_id !== projectId || rf.is_deliverable) {
+        throw new ValidationError('参考文件无效或不属于该项目')
+      }
+    }
+  }
+
+  return {
+    projectId,
+    fileNameForDb,
+    extForStorage,
+    versionGroupId,
+    versionLabelForDb,
+    contractDeliverableIdForInsert,
+    referenceFileIds: refIds,
+  }
+}
+
+export async function beginDeliverableFileUpload(
+  input: BeginDeliverableFileUploadInput
+) {
+  const user = await requireUser()
+  const fileSize = normalizeFileSize(input.fileSize)
+  const deliverableMode =
+    input.deliverableMode === 'standalone' ? 'standalone' : 'contract'
+  const referenceFileIds = input.referenceFileIds ?? []
+  const prepared = await prepareDeliverableUpload({
+    userId: user.id,
+    projectId: input.projectId,
+    fileName: input.fileName,
+    deliverableMode,
+    contractDeliverableId: input.contractDeliverableId?.trim() ?? '',
+    existingDeliverableFileId: input.existingDeliverableFileId?.trim() ?? '',
+    referenceFileIds,
+    versionLabel: input.versionLabel ?? '',
+  })
+
+  const fileId = randomUUID()
+  const objectPath = `${prepared.projectId}/deliverable/${fileId}.${prepared.extForStorage}`
+  const mimeType = normalizeMimeType(input.mimeType)
+  const uploadUrl = await createProjectFileUploadUrl(
+    objectPath,
+    mimeType,
+    DIRECT_UPLOAD_URL_EXPIRES_SECONDS
+  )
+  const uploadToken = await signDirectUploadToken({
+    purpose: 'project-file-upload',
+    kind: 'deliverable',
+    userId: user.id,
+    fileId,
+    projectId: prepared.projectId,
+    objectPath,
+    fileName: prepared.fileNameForDb,
+    fileSize,
+    fileExt: prepared.extForStorage,
+    mimeType,
+    deliverableMode,
+    contractDeliverableId: input.contractDeliverableId?.trim() ?? '',
+    existingDeliverableFileId: input.existingDeliverableFileId?.trim() ?? '',
+    referenceFileIds: prepared.referenceFileIds,
+    versionLabel: input.versionLabel ?? '',
+    isConfidential: input.isConfidential,
+    recommend: input.recommend,
+    favorite: input.favorite,
+  })
+
+  return {
+    fileId,
+    objectPath,
+    uploadUrl,
+    uploadToken,
+    expiresInSeconds: DIRECT_UPLOAD_URL_EXPIRES_SECONDS,
+  }
+}
+
+export async function completeDeliverableFileUpload(uploadToken: string) {
+  const user = await requireUser()
+  const payload = await verifyDirectUploadToken(uploadToken)
+  if (payload.kind !== 'deliverable') throw new ValidationError('上传类型不一致')
+  if (payload.userId !== user.id) throw new ValidationError('上传用户不一致')
+
+  await assertUploadedObjectMatches({
+    objectPath: payload.objectPath,
+    fileSize: payload.fileSize,
+  })
+
+  const prepared = await prepareDeliverableUpload({
+    userId: user.id,
+    projectId: payload.projectId,
+    fileName: payload.fileName,
+    deliverableMode: payload.deliverableMode,
+    contractDeliverableId: payload.contractDeliverableId,
+    existingDeliverableFileId: payload.existingDeliverableFileId,
+    referenceFileIds: payload.referenceFileIds,
+    versionLabel: payload.versionLabel,
+  })
+
+  await repo.markGroupFilesNotLatest(prepared.versionGroupId)
+  const versionNo = await repo.getNextVersionNoInGroup(prepared.versionGroupId)
+
+  await repo.insertDeliverableFileRow({
+    id: payload.fileId,
+    projectId: prepared.projectId,
+    fileName: prepared.fileNameForDb,
+    fileSize: payload.fileSize,
+    fileExt: prepared.extForStorage,
+    mimeType: payload.mimeType,
+    sourceStorageKey: payload.objectPath,
+    uploaderId: user.id,
+    versionGroupId: prepared.versionGroupId,
+    versionNo,
+    versionLabel: prepared.versionLabelForDb,
+    contractDeliverableId: prepared.contractDeliverableIdForInsert,
+    fileSource: 'original',
+    isConfidential: payload.isConfidential,
+  })
+
+  await repo.insertFileReferenceLinks(payload.fileId, prepared.referenceFileIds)
+
+  await repo.insertFileInteractionsForUpload({
+    fileId: payload.fileId,
+    userId: user.id,
+    recommend: payload.recommend,
+    favorite: payload.favorite,
+  })
+  await enqueueInitialProcessingForFile(payload.fileId)
+
+  return { id: payload.fileId }
 }
 
 export async function uploadReferenceFile(formData: FormData) {
@@ -165,6 +696,7 @@ export async function uploadReferenceFile(formData: FormData) {
     recommend: parseFormBool(formData.get('recommend')),
     favorite: parseFormBool(formData.get('favorite')),
   })
+  await enqueueInitialProcessingForFile(fileId)
 
   return { id: fileId }
 }
@@ -373,6 +905,7 @@ export async function uploadDeliverableFile(formData: FormData) {
     recommend: parseFormBool(formData.get('recommend')),
     favorite: parseFormBool(formData.get('favorite')),
   })
+  await enqueueInitialProcessingForFile(fileId)
 
   return { id: fileId }
 }

@@ -24,6 +24,8 @@ export async function getFileRowForPreview(
       source_storage_key: files.sourceStorageKey,
       preview_storage_key: files.previewStorageKey,
       preview_status: files.previewStatus,
+      parse_status: files.parseStatus,
+      index_status: files.indexStatus,
       is_confidential: files.isConfidential,
       uploader_id: files.uploaderId,
       uploader_name: users.name,
@@ -48,6 +50,8 @@ export async function getFileRowForPreview(
     source_storage_key: data.source_storage_key,
     preview_storage_key: data.preview_storage_key ?? null,
     preview_status: data.preview_status ?? null,
+    parse_status: data.parse_status ?? null,
+    index_status: data.index_status ?? null,
     is_confidential: data.is_confidential === true,
     uploader_id: data.uploader_id,
     uploader_name: uploaderName,
@@ -76,23 +80,23 @@ export async function isUserProjectMember(
 }
 
 /** 取 parse 任务成功时的 result_data（如 Excel 预览 JSON） */
-export async function getLatestParseResultData(
+export async function getLatestPreviewResultData(
   fileId: string
 ): Promise<Json | null> {
   const db = getDb()
   const rows = await db
-    .select({ result_data: fileProcessTasks.resultData })
+    .select({ output: fileProcessTasks.output })
     .from(fileProcessTasks)
     .where(
       and(
         eq(fileProcessTasks.fileId, fileId),
-        eq(fileProcessTasks.taskType, 'parse'),
-        eq(fileProcessTasks.status, 'success')
+        eq(fileProcessTasks.stage, 'preview'),
+        eq(fileProcessTasks.status, 'ready')
       )
     )
     .orderBy(desc(fileProcessTasks.completedAt))
     .limit(1)
 
   const data = rows[0]
-  return (data?.result_data as Json | null) ?? null
+  return (data?.output as Json | null) ?? null
 }

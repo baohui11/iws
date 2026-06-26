@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, Input, Spinner } from '@heroui/react'
+import { Button, Divider, Input, Spinner, Tooltip } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import {
   useCallback,
@@ -11,7 +11,13 @@ import {
 } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 
-/** cancel() 后 promise 会 reject，不应当作「渲染失败」展示 */
+const MIN_ZOOM = 0.5
+const DEFAULT_ZOOM = 0.8
+const MAX_ZOOM = 2.5
+const ZOOM_STEP = 0.1
+const MAX_RENDER_DPR = 2
+const PAGE_GAP = 40
+
 function isPdfRenderCancelled(e: unknown): boolean {
   if (e == null || typeof e !== 'object') return false
   const name = (e as Error).name
@@ -22,45 +28,52 @@ function isPdfRenderCancelled(e: unknown): boolean {
   )
 }
 
-/** 按 PDF 页面原始尺寸渲染（scale=1，与 PDF 坐标系一致，不做额外缩放） */
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value))
+}
+
+function useElementWidth(ref: React.RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const sync = () => setWidth(el.clientWidth)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+
+  return width
+}
+
 function PdfPageCanvas({
   pdf,
   pageNumber,
+  zoom,
+  containerWidth,
 }: {
   pdf: PDFDocumentProxy
   pageNumber: number
+  zoom: number
+  containerWidth: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null)
   const renderGenRef = useRef(0)
   const [renderErr, setRenderErr] = useState<string | null>(null)
 
-  /**
-   * useLayoutEffect：ref 在 DOM 提交后已可用；卸载/重跑时 cancel 会 reject，需忽略；
-   * renderGenRef 防止 Strict Mode 下旧异步晚到仍 setRenderErr。
-   */
   useLayoutEffect(() => {
     const gen = ++renderGenRef.current
     let cancelled = false
-    let rafId = 0
-    let attempts = 0
-    const maxRefRetries = 5
 
-    // 每次重渲染前清错误态，配合 pdf.js 命令式 canvas 渲染（外部系统同步）
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRenderErr(null)
 
     async function renderOnce() {
-      const c = canvasRef.current
-      if (!c) {
-        if (attempts < maxRefRetries && !cancelled) {
-          attempts += 1
-          rafId = requestAnimationFrame(() => {
-            if (!cancelled) void renderOnce()
-          })
-        }
-        return
-      }
+      const canvas = canvasRef.current
+      if (!canvas) return
 
       renderTaskRef.current?.cancel()
       renderTaskRef.current = null
@@ -69,22 +82,40 @@ function PdfPageCanvas({
         const page = await pdf.getPage(pageNumber)
         if (cancelled || gen !== renderGenRef.current) return
 
-        const viewport = page.getViewport({ scale: 1 })
-        const w = Math.max(1, Math.floor(viewport.width))
-        const h = Math.max(1, Math.floor(viewport.height))
-        c.width = w
-        c.height = h
-        const ctx = c.getContext('2d')
+        const baseViewport = page.getViewport({ scale: 1 })
+        const availableWidth = Math.max(320, containerWidth - PAGE_GAP)
+        const fitScale =
+          baseViewport.width > 0
+            ? Math.min(1.8, availableWidth / baseViewport.width)
+            : 1
+        const cssScale = fitScale * zoom
+        const renderDpr = Math.min(
+          MAX_RENDER_DPR,
+          Math.max(1, window.devicePixelRatio || 1)
+        )
+        const renderViewport = page.getViewport({
+          scale: cssScale * renderDpr,
+        })
+        const cssViewport = page.getViewport({ scale: cssScale })
+
+        canvas.width = Math.max(1, Math.floor(renderViewport.width))
+        canvas.height = Math.max(1, Math.floor(renderViewport.height))
+        canvas.style.width = `${Math.max(1, Math.floor(cssViewport.width))}px`
+        canvas.style.height = `${Math.max(1, Math.floor(cssViewport.height))}px`
+
+        const ctx = canvas.getContext('2d', { alpha: false })
         if (!ctx) {
-          if (!cancelled && gen === renderGenRef.current) {
-            setRenderErr('该页渲染失败')
-          }
+          setRenderErr('该页渲染失败')
           return
         }
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
 
-        const task = page.render({ canvasContext: ctx, viewport })
+        const task = page.render({
+          canvasContext: ctx,
+          viewport: renderViewport,
+        })
         renderTaskRef.current = task
-
         try {
           await task.promise
         } catch (e) {
@@ -107,31 +138,36 @@ function PdfPageCanvas({
 
     return () => {
       cancelled = true
-      cancelAnimationFrame(rafId)
       renderTaskRef.current?.cancel()
       renderTaskRef.current = null
     }
-  }, [pdf, pageNumber])
+  }, [containerWidth, pdf, pageNumber, zoom])
 
-  /** 始终保留 canvas，避免出错时用 p 替换导致 ref 丢失、后续无法重绘 */
   return (
-    <div className="mx-auto inline-block max-w-none">
+    <section
+      id={`pdf-page-${pageNumber}`}
+      className="flex scroll-mt-16 flex-col items-center gap-2"
+    >
       <canvas
         ref={canvasRef}
-        className="block max-w-none bg-white shadow-none ring-1 ring-default-200/40"
+        className="block max-w-none bg-white shadow-sm ring-1 ring-default-200"
       />
+      <span className="text-xs text-default-400">第 {pageNumber} 页</span>
       {renderErr ? (
-        <p className="mt-2 text-center text-sm text-danger">{renderErr}</p>
+        <p className="text-center text-sm text-danger">{renderErr}</p>
       ) : null}
-    </div>
+    </section>
   )
 }
 
 export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const containerWidth = useElementWidth(viewportRef)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [numPages, setNumPages] = useState(0)
-  const [currentPage, setCurrentPage] = useState(1)
   const [pageInput, setPageInput] = useState('1')
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM)
+  const [toolbarOpen, setToolbarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -142,8 +178,8 @@ export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
       setError(null)
       setPdf(null)
       setNumPages(0)
-      setCurrentPage(1)
       setPageInput('1')
+      setZoom(DEFAULT_ZOOM)
       try {
         const pdfjs = await import('pdfjs-dist')
         pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -152,8 +188,6 @@ export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
         if (cancelled) return
         setPdf(doc)
         setNumPages(doc.numPages)
-        setCurrentPage(1)
-        setPageInput('1')
       } catch {
         setError('PDF 加载失败，请稍后重试')
       } finally {
@@ -166,118 +200,150 @@ export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
     }
   }, [signedUrl])
 
-  const goToPage = useCallback(
-    (p: number) => {
-      if (!numPages) return
-      const next = Math.max(1, Math.min(Math.floor(p), numPages))
-      setCurrentPage(next)
-      setPageInput(String(next))
-    },
-    [numPages]
-  )
-
-  const onPrevNext = useCallback(
-    (delta: number) => {
-      goToPage(currentPage + delta)
-    },
-    [currentPage, goToPage]
-  )
-
-  const onJump = useCallback(() => {
+  const jumpToPage = useCallback(() => {
     const n = parseInt(pageInput.trim(), 10)
-    if (!Number.isFinite(n)) return
-    goToPage(n)
-  }, [goToPage, pageInput])
+    if (!Number.isFinite(n) || !numPages) return
+    const page = Math.max(1, Math.min(Math.floor(n), numPages))
+    setPageInput(String(page))
+    document
+      .getElementById(`pdf-page-${page}`)
+      ?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [numPages, pageInput])
 
-  const showPager = !!(pdf && numPages > 0 && !loading && !error)
+  const setZoomBy = useCallback((delta: number) => {
+    setZoom((z) => clampZoom(Number((z + delta).toFixed(2))))
+  }, [])
+
+  const showToolbar = !!(pdf && numPages > 0 && !loading && !error)
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+    <div className="relative flex w-full flex-col">
+      <div ref={viewportRef} className="min-w-0 bg-default-100">
         {loading ? (
-          <div className="flex w-full flex-1 items-center justify-center py-10">
-            <Spinner label="加载 PDF…" />
+          <div className="flex min-h-full w-full items-center justify-center py-10">
+            <Spinner label="加载 PDF" />
           </div>
         ) : error ? (
-          <p className="m-auto w-full px-3 text-center text-sm text-danger">
+          <p className="m-auto w-full px-3 py-10 text-center text-sm text-danger">
             {error}
           </p>
-        ) : pdf && numPages > 0 ? (
-          <div className="flex min-h-full w-full flex-col items-center px-0 pb-3 pt-11">
-            <div className="flex w-max max-w-full flex-col items-center">
-              <PdfPageCanvas pdf={pdf} pageNumber={currentPage} />
-            </div>
+        ) : pdf && numPages > 0 && containerWidth > 0 ? (
+          <div className="flex min-h-full w-full flex-col items-center gap-8 px-4 pb-8 pt-14">
+            {Array.from({ length: numPages }, (_, index) => (
+              <PdfPageCanvas
+                key={index + 1}
+                pdf={pdf}
+                pageNumber={index + 1}
+                zoom={zoom}
+                containerWidth={containerWidth}
+              />
+            ))}
           </div>
         ) : null}
       </div>
 
-      {showPager ? (
-        <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
-          <div
-            className="pointer-events-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full border border-default-200/25 bg-background/40 px-2.5 py-1 shadow-sm backdrop-blur-md"
-            role="toolbar"
-            aria-label="PDF 翻页"
-          >
-            <div className="flex items-center gap-0.5">
-              <Button
-                isIconOnly
-                size="sm"
-                variant="light"
-                className="bg-transparent"
-                aria-label="上一页"
-                isDisabled={currentPage <= 1}
-                onPress={() => onPrevNext(-1)}
-              >
-                <Icon icon="lucide:chevron-left" className="size-4" />
-              </Button>
-              <Button
-                isIconOnly
-                size="sm"
-                variant="light"
-                className="bg-transparent"
-                aria-label="下一页"
-                isDisabled={currentPage >= numPages}
-                onPress={() => onPrevNext(1)}
-              >
-                <Icon icon="lucide:chevron-right" className="size-4" />
-              </Button>
+      {showToolbar ? (
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-50 flex justify-center px-2">
+          {toolbarOpen ? (
+            <div
+              className="pointer-events-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full border border-default-200/70 bg-background/85 px-2 py-1 shadow-sm backdrop-blur-md"
+              role="toolbar"
+              aria-label="PDF 工具栏"
+            >
+              <div className="flex items-center gap-1.5">
+                <Input
+                  size="sm"
+                  type="number"
+                  min={1}
+                  max={numPages || 1}
+                  value={pageInput}
+                  onValueChange={setPageInput}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') jumpToPage()
+                  }}
+                  classNames={{
+                    input: 'text-center tabular-nums',
+                    inputWrapper:
+                      'h-8 w-14 min-w-14 bg-transparent shadow-none',
+                  }}
+                  aria-label="页码"
+                />
+                <span className="whitespace-nowrap text-xs text-default-600">
+                  / {numPages}
+                </span>
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  className="bg-primary/15"
+                  onPress={jumpToPage}
+                >
+                  跳转
+                </Button>
+              </div>
+
+              <Divider orientation="vertical" className="h-5" />
+
+              <div className="flex items-center gap-0.5">
+                <Tooltip content="缩小">
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="light"
+                    aria-label="缩小"
+                    isDisabled={zoom <= MIN_ZOOM}
+                    onPress={() => setZoomBy(-ZOOM_STEP)}
+                  >
+                    <Icon icon="lucide:zoom-out" className="size-4" />
+                  </Button>
+                </Tooltip>
+                <button
+                  type="button"
+                  className="min-w-12 rounded-md px-1.5 py-1 text-center text-xs tabular-nums text-default-600 hover:bg-default-100"
+                  onClick={() => setZoom(DEFAULT_ZOOM)}
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <Tooltip content="放大">
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="light"
+                    aria-label="放大"
+                    isDisabled={zoom >= MAX_ZOOM}
+                    onPress={() => setZoomBy(ZOOM_STEP)}
+                  >
+                    <Icon icon="lucide:zoom-in" className="size-4" />
+                  </Button>
+                </Tooltip>
+              </div>
+
+              <Tooltip content="收起工具栏">
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="light"
+                  aria-label="收起工具栏"
+                  onPress={() => setToolbarOpen(false)}
+                >
+                  <Icon icon="lucide:chevron-up" className="size-4" />
+                </Button>
+              </Tooltip>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="whitespace-nowrap text-xs text-default-600">
-                第
-              </span>
-              <Input
-                size="sm"
-                type="number"
-                min={1}
-                max={numPages || 1}
-                value={pageInput}
-                onValueChange={setPageInput}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onJump()
-                }}
-                classNames={{
-                  input: 'text-center tabular-nums',
-                  inputWrapper:
-                    'h-8 w-14 min-w-14 bg-transparent shadow-none',
-                }}
-                isDisabled={numPages === 0}
-              />
-              <span className="whitespace-nowrap text-xs text-default-600">
-                / {numPages} 页
-              </span>
+          ) : (
+            <Tooltip content="展开 PDF 工具栏">
               <Button
+                isIconOnly
                 size="sm"
-                color="primary"
                 variant="flat"
-                className="bg-primary/20"
-                isDisabled={numPages === 0}
-                onPress={onJump}
+                className="pointer-events-auto bg-background/85 shadow-sm backdrop-blur-md"
+                aria-label="展开 PDF 工具栏"
+                onPress={() => setToolbarOpen(true)}
               >
-                跳转
+                <Icon icon="lucide:panel-top-open" className="size-4" />
               </Button>
-            </div>
-          </div>
+            </Tooltip>
+          )}
         </div>
       ) : null}
     </div>

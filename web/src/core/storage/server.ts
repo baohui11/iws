@@ -3,6 +3,9 @@ export { storage } from './storage'
 export {
   uploadProjectFileBuffer,
   createProjectFileSignedUrl,
+  createProjectFileUploadUrl,
+  createProjectFileSignedUrlWithEndpoint,
+  getProjectFileObjectInfo,
 } from './project-files'
 export { decryptClientFileToBuffer } from './upload-pipeline'
 export { prepareDownloadBuffer } from './download-pipeline'
