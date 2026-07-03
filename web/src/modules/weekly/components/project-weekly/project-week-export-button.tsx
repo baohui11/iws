@@ -5,6 +5,7 @@ import { Button, addToast } from '@heroui/react'
 import { Icon } from '@iconify/react'
 
 import { exportProjectWeekExcelAction } from '@/modules/weekly/project-weekly/actions'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 
 export default function ProjectWeekExportButton({
   projectId,
@@ -41,19 +42,13 @@ export default function ProjectWeekExportButton({
           timeout: 2000,
         })
       } else if (!result.success) {
-        addToast({
-          title: '导出失败',
-          description: result.message ?? '请稍后重试',
-          color: 'danger',
-          timeout: 4000,
-        })
+        showResultError(result, '导出失败')
       }
-    } catch {
-      addToast({
+    } catch (error) {
+      showErrorToast({
         title: '导出失败',
-        description: '网络错误，请稍后重试',
-        color: 'danger',
-        timeout: 4000,
+        error,
+        fallbackMessage: '网络错误，请稍后重试',
       })
     } finally {
       setLoading(false)

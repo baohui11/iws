@@ -14,6 +14,10 @@ import clsx from 'clsx'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SubpageBackButton } from '@/components/common/subpage-header'
+import {
+  showErrorToast,
+  unwrapResultOrToast,
+} from '@/core/client/errors'
 import { downloadProjectFile } from '@/modules/files/download/client'
 import { loadFilePreview } from '@/modules/files/preview/actions'
 import { formatFileSize } from '@/modules/files/lib/format-file-size'
@@ -199,16 +203,12 @@ export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
 
       setLoading(false)
       setRefreshing(false)
-      if (!res.success) {
-        addToast({
-          title: '无法预览',
-          description: res.message ?? '加载失败',
-          color: 'danger',
-        })
+      const nextData = unwrapResultOrToast(res, '无法预览')
+      if (!nextData) {
         setData(null)
         return
       }
-      setData(res.data)
+      setData(nextData)
     },
     [fileId]
   )
@@ -300,11 +300,7 @@ export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
       await downloadProjectFile(fileId)
     } catch (e) {
       console.error(e)
-      addToast({
-        title: '下载失败',
-        description: e instanceof Error ? e.message : '请稍后重试',
-        color: 'danger',
-      })
+      showErrorToast({ title: '下载失败', error: e })
     } finally {
       window.setTimeout(() => setDownloading(false), 600)
     }

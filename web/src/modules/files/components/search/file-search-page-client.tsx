@@ -5,6 +5,7 @@ import FileTypeIcon from '@/modules/files/components/upload/file-type-icon'
 import { StatsLabelField } from '@/modules/stats/components/shared/stats-label-field'
 import type { DeptOption } from '@/modules/stats/types'
 import type { DocSearchHit, DocSearchResponse } from '@/modules/files/types'
+import { showResultError } from '@/core/client/errors'
 import {
   Button,
   Card,
@@ -236,11 +237,7 @@ export default function FileSearchPageClient({
           max_content_chars: 600,
         })
         if (!res.success) {
-          addToast({
-            title: '检索失败',
-            description: res.message ?? '请稍后重试',
-            color: 'danger',
-          })
+          showResultError(res, '检索失败')
           setResult(null)
           return
         }

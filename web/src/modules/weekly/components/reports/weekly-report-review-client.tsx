@@ -16,6 +16,7 @@ import { Icon } from '@iconify/react'
 import WeeklyReportDetailView from '@/modules/weekly/components/reports/weekly-report-detail-view'
 import { submitWeeklyReportApprovalDecisionAction } from '@/modules/weekly/report-editor/actions'
 import type { WeeklyReportDetailPayload } from '@/modules/weekly/types'
+import { showResultError } from '@/core/client/errors'
 
 export interface WeeklyReportReviewClientProps {
   detail: WeeklyReportDetailPayload
@@ -47,7 +48,7 @@ export default function WeeklyReportReviewClient({
         decision: 'approve',
       })
       if (!r.success) {
-        addToast({ title: r.message ?? '操作失败', color: 'danger' })
+        showResultError(r, '操作失败')
         return
       }
       addToast({ title: '已通过', color: 'success', timeout: 2000 })
@@ -71,7 +72,7 @@ export default function WeeklyReportReviewClient({
         rejectReason: trimmed,
       })
       if (!r.success) {
-        addToast({ title: r.message ?? '操作失败', color: 'danger' })
+        showResultError(r, '操作失败')
         return
       }
       addToast({ title: '已驳回', color: 'success', timeout: 2000 })

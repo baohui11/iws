@@ -14,7 +14,9 @@ export async function findActiveUserByEmail(email: string) {
       passwordHash: users.passwordHash,
     })
     .from(users)
-    .where(and(eq(users.email, email), isNull(users.deletedAt)))
+    .where(
+      and(eq(users.email, email), eq(users.isActive, true), isNull(users.deletedAt))
+    )
     .limit(1)
   return rows[0] ?? null
 }

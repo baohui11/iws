@@ -126,7 +126,13 @@ export async function getWeeklyDeptByPerson(
   const pmRows = await db
     .select({ userId: projectMembers.userId, projectId: projectMembers.projectId })
     .from(projectMembers)
-    .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.deletedAt)))
+    .where(
+      and(
+        inArray(projectMembers.projectId, projectIds),
+        eq(projectMembers.isActive, true),
+        isNull(projectMembers.deletedAt)
+      )
+    )
 
   const userHasDeptProject = new Set<string>()
   for (const r of pmRows) {
@@ -230,7 +236,7 @@ export async function getWeeklyDeptByProject(
 
   const projectConditions = [
     inArray(projects.departmentId, deptIds),
-    inArray(projects.projectStatus, ['active', 'suspended']),
+    eq(projects.isActive, true),
     isNull(projects.deletedAt),
   ]
   const pk = params.projectKeyword?.trim()

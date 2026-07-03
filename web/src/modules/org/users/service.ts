@@ -1,154 +1,168 @@
 import { NotFoundError, ValidationError } from '@/core/errors'
-import { mapDbError } from '@/core/db/errors'
 import { requireAdmin } from '@/modules/org/guard'
-import { findDepartmentIdByName } from '@/modules/org/departments/repo'
+import { parseSystemRole, type SystemRoleValue } from '@/constants/system-roles'
+import { getAdminDepartmentScopeIds } from '@/modules/org/departments/repo'
 import {
   getUserById,
   getUserList,
-  softDeleteUserById,
+  listAllUserDataScopes,
+  replaceUserDataScopes,
+  searchUsersForDataScopePick,
   updateUserRow,
-  upsertUserByEmployeeNo,
-  type UpdateUserData,
+  type UserDataScopeInput,
   type UserListParams,
+  type UserWithDepartment,
 } from './repo'
-import {
-  createUserSchema,
-  updateUserSchema,
-  type CreateUserInput,
-  type UpdateUserInput,
-} from './schema'
 
 export async function listUsers(params: UserListParams) {
-  await requireAdmin()
-  return getUserList(params)
+  const user = await requireAdmin()
+  const allowedDepartmentIds = await getAdminDepartmentScopeIds(user, {
+    includeInactive: true,
+  })
+  return getUserList({ ...params, allowed_department_ids: allowedDepartmentIds })
 }
 
-export async function getUser(id: string) {
-  await requireAdmin()
+function csvCell(value: unknown): string {
+  const text = value == null ? '' : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function usersToCsv(users: UserWithDepartment[]): string {
+  const header = ['工号', '姓名', '部门', '角色', '标签', '状态', '邮箱', '职位']
+  const rows = users.map((user) => [
+    user.employee_no,
+    user.name,
+    user.department_name,
+    user.role,
+    user.tags,
+    user.is_active ? '已生效' : '未生效',
+    user.email,
+    user.position,
+  ])
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')
+}
+
+export async function exportUsersCsv(params: UserListParams) {
+  const user = await requireAdmin()
+  const allowedDepartmentIds = await getAdminDepartmentScopeIds(user, {
+    includeInactive: true,
+  })
+  const result = await getUserList({
+    ...params,
+    page: 1,
+    pageSize: 10000,
+    allowed_department_ids: allowedDepartmentIds,
+  })
+  return {
+    filename: `users-${new Date().toISOString().slice(0, 10)}.csv`,
+    csv: `\uFEFF${usersToCsv(result.users)}`,
+  }
+}
+
+export async function getUserForAdmin(id: string) {
+  const actor = await requireAdmin()
   const user = await getUserById(id)
   if (!user) throw new NotFoundError('用户不存在')
+  const allowedDepartmentIds = await getAdminDepartmentScopeIds(actor, {
+    includeInactive: true,
+  })
+  if (
+    allowedDepartmentIds &&
+    (!user.department_id || !allowedDepartmentIds.includes(user.department_id))
+  ) {
+    throw new NotFoundError('用户不存在')
+  }
   return user
 }
 
-/**
- * 创建用户：写入用户表（不再走 Supabase 邀请邮件；激活/设密流程见迁移登记 #2）。
- */
-export async function createUser(input: CreateUserInput) {
+export async function updateUserActive(input: { id: string; is_active: boolean }) {
   await requireAdmin()
-  const parsed = createUserSchema.safeParse(input)
-  if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0]?.message ?? '参数不合法')
+  if (!input.id?.trim()) throw new ValidationError('用户 ID 不能为空')
+  if (typeof input.is_active !== 'boolean') {
+    throw new ValidationError('生效状态不合法')
   }
-  try {
-    const userId = await upsertUserByEmployeeNo({
-      email: parsed.data.email,
-      name: parsed.data.name,
-      gender: parsed.data.gender,
-      employee_no: parsed.data.employee_no,
-      department_id: parsed.data.department_id,
-      position: parsed.data.position,
-      role: parsed.data.role ?? 'user',
-    })
-    return { userId, invited: false }
-  } catch (e) {
-    mapDbError(e)
-  }
-}
-
-export async function updateUser(input: UpdateUserInput) {
-  await requireAdmin()
-  const parsed = updateUserSchema.safeParse(input)
-  if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0]?.message ?? '参数不合法')
-  }
-  const { id, ...updates } = parsed.data
-  if (Object.keys(updates).length === 0) {
-    throw new ValidationError('至少需要提供一个更新字段')
-  }
-  const existing = await getUserById(id)
+  const existing = await getUserForAdmin(input.id)
   if (!existing) throw new NotFoundError('用户不存在')
-
-  try {
-    await updateUserRow(id, updates as UpdateUserData)
-    return { id }
-  } catch (e) {
-    mapDbError(e)
-  }
+  await updateUserRow(input.id, { is_active: input.is_active })
+  return { id: input.id, is_active: input.is_active }
 }
 
-export async function removeUser(id: string) {
+export async function updateUserRole(input: { id: string; role: SystemRoleValue }) {
   await requireAdmin()
-  if (!id?.trim()) throw new ValidationError('用户 ID 不能为空')
-  const existing = await getUserById(id)
-  if (!existing) throw new NotFoundError('用户不存在或已删除')
-  await softDeleteUserById(id)
-  return { id }
+  if (!input.id?.trim()) throw new ValidationError('用户 ID 不能为空')
+  const role = parseSystemRole(input.role)
+  if (!role) throw new ValidationError('角色不合法')
+  const existing = await getUserForAdmin(input.id)
+  if (!existing) throw new NotFoundError('用户不存在')
+  await updateUserRow(input.id, { role })
+  return { id: input.id, role }
 }
 
-export interface ImportUserInput {
-  employee_no: string
-  name: string
-  gender: string
-  department_id?: string
-  department_name?: string
-  position: string
-  email: string
-  role: CreateUserInput['role']
-}
-
-export interface ImportResult {
-  total: number
-  succeeded: number
-  failed: number
-  results: Array<{
-    email: string
-    success: boolean
-    userId?: string
-    message?: string
-  }>
-}
-
-/** 批量导入：仅写入用户表 */
-export async function importUsers(rows: ImportUserInput[]): Promise<ImportResult> {
+export async function updateUserTags(input: { id: string; tags: string | null }) {
   await requireAdmin()
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new ValidationError('用户列表不能为空')
-  }
+  if (!input.id?.trim()) throw new ValidationError('用户 ID 不能为空')
+  const tags = input.tags?.trim() || null
+  const existing = await getUserForAdmin(input.id)
+  if (!existing) throw new NotFoundError('用户不存在')
+  await updateUserRow(input.id, { tags })
+  return { id: input.id, tags }
+}
 
-  const results: ImportResult['results'] = []
-  for (const user of rows) {
-    try {
-      if (!user.email?.trim()) throw new ValidationError('邮箱不能为空')
-      let departmentId = user.department_id?.trim() || ''
-      if (!departmentId && user.department_name?.trim()) {
-        departmentId = (await findDepartmentIdByName(user.department_name)) ?? ''
-      }
-      if (!departmentId) {
-        throw new ValidationError(
-          '部门不能为空（请填写 department_id 或 department_name）'
-        )
-      }
-      const userId = await upsertUserByEmployeeNo({
-        email: user.email.trim(),
-        name: user.name,
-        gender: user.gender,
-        employee_no: user.employee_no,
-        department_id: departmentId,
-        position: user.position,
-        role: user.role ?? 'user',
-      })
-      results.push({ email: user.email, success: true, userId })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : '创建失败'
-      results.push({ email: user.email, success: false, message })
-    }
+export async function updateUserAdminSettings(input: {
+  id: string
+  role: SystemRoleValue
+  tags: string | null
+  is_active: boolean
+}) {
+  await requireAdmin()
+  if (!input.id?.trim()) throw new ValidationError('用户 ID 不能为空')
+  const role = parseSystemRole(input.role)
+  if (!role) throw new ValidationError('角色不合法')
+  if (typeof input.is_active !== 'boolean') {
+    throw new ValidationError('生效状态不合法')
   }
+  const existing = await getUserForAdmin(input.id)
+  if (!existing) throw new NotFoundError('用户不存在')
+  const tags = input.tags?.trim() || null
+  await updateUserRow(input.id, {
+    role,
+    tags,
+    is_active: input.is_active,
+  })
+  return { id: input.id, role, tags, is_active: input.is_active }
+}
 
-  const succeeded = results.filter((r) => r.success).length
-  return {
-    total: rows.length,
-    succeeded,
-    failed: results.length - succeeded,
-    results,
+export async function listDataScopes() {
+  const user = await requireAdmin()
+  if (user.role !== 'admin') {
+    throw new ValidationError('只有系统管理员可以查看数据权限')
   }
+  return listAllUserDataScopes()
+}
+
+export async function searchDataScopeUsers(input: {
+  keyword?: string
+  limit?: number
+}) {
+  const user = await requireAdmin()
+  if (user.role !== 'admin') {
+    throw new ValidationError('只有系统管理员可以维护数据权限')
+  }
+  return searchUsersForDataScopePick({
+    keyword: input.keyword,
+    limit: input.limit,
+  })
+}
+
+export async function saveDataScopes(input: {
+  user_id: string
+  data_scopes: UserDataScopeInput[]
+}) {
+  const user = await requireAdmin()
+  if (user.role !== 'admin') {
+    throw new ValidationError('只有系统管理员可以维护数据权限')
+  }
+  if (!input.user_id?.trim()) throw new ValidationError('请选择用户')
+  await replaceUserDataScopes(input.user_id.trim(), input.data_scopes ?? [])
+  return { user_id: input.user_id.trim() }
 }

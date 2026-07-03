@@ -1,11 +1,21 @@
+import {
+  getAdminDepartmentScopeIds,
+  getDepartmentTree,
+} from '@/modules/org/departments/repo'
 import { getProjectList } from '@/modules/projects/repo'
-import { getDepartmentTree } from '@/modules/org/departments/repo'
+import { requireAdmin } from '@/modules/org/guard'
 import ProjectTable from '@/modules/projects/components/project-table'
 
 export default async function AdminProjectsPage() {
+  const actor = await requireAdmin()
+  const allowedDepartmentIds = await getAdminDepartmentScopeIds(actor)
   const [list, departments] = await Promise.all([
-    getProjectList({ page: 1, pageSize: 20 }),
-    getDepartmentTree(),
+    getProjectList({
+      page: 1,
+      pageSize: 20,
+      allowed_department_ids: allowedDepartmentIds,
+    }),
+    getDepartmentTree({ allowedDepartmentIds }),
   ])
 
   return (
@@ -13,7 +23,7 @@ export default async function AdminProjectsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">项目管理</h1>
         <p className="text-foreground/50 mt-1 text-sm">
-          管理项目、成员与合同成果清单，支持批量导入
+          项目与成员来自 OA 同步，平台侧维护成果清单与后续生效状态
         </p>
       </div>
 

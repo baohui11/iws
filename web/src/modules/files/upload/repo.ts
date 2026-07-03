@@ -22,7 +22,7 @@ import {
   type FileSourceValue,
 } from '../types'
 
-/** 当前用户为成员且项目状态为「进行中」 */
+/** 当前用户为成员且项目已在 IWS 激活 */
 export async function listMemberActiveProjectsForUpload(
   userId: string
 ): Promise<MemberActiveProjectOption[]> {
@@ -31,7 +31,11 @@ export async function listMemberActiveProjectsForUpload(
     .select({ project_id: projectMembers.projectId })
     .from(projectMembers)
     .where(
-      and(eq(projectMembers.userId, userId), isNull(projectMembers.deletedAt))
+      and(
+        eq(projectMembers.userId, userId),
+        eq(projectMembers.isActive, true),
+        isNull(projectMembers.deletedAt)
+      )
     )
 
   const ids = [
@@ -51,7 +55,7 @@ export async function listMemberActiveProjectsForUpload(
     .where(
       and(
         inArray(projects.id, ids),
-        eq(projects.projectStatus, 'active'),
+        eq(projects.isActive, true),
         isNull(projects.deletedAt)
       )
     )
@@ -60,7 +64,7 @@ export async function listMemberActiveProjectsForUpload(
   return projectRows
 }
 
-/** 当前用户为成员且项目状态为「进行中」 */
+/** 当前用户为成员且项目已在 IWS 激活 */
 export async function assertMemberActiveProject(
   userId: string,
   projectId: string
@@ -73,6 +77,7 @@ export async function assertMemberActiveProject(
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectId, projectId),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
@@ -81,14 +86,14 @@ export async function assertMemberActiveProject(
   if (!memRows.length) throw new BusinessError('您不是该项目成员')
 
   const projRows = await db
-    .select({ project_status: projects.projectStatus })
+    .select({ is_active: projects.isActive })
     .from(projects)
     .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
     .limit(1)
 
   const proj = projRows[0]
-  if (!proj || proj.project_status !== 'active') {
-    throw new BusinessError('仅「进行中」的项目可上传文件')
+  if (!proj?.is_active) {
+    throw new BusinessError('仅已激活的项目可上传文件')
   }
 }
 

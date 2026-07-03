@@ -14,7 +14,6 @@ import {
   TableHeader,
   TableRow,
   Tabs,
-  addToast,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { getLocalTimeZone, today, type DateValue } from '@internationalized/date'
@@ -23,6 +22,7 @@ import {
   loadFileDownloadByPersonAction,
   loadFileDownloadDetailsAction,
 } from '@/modules/stats/actions'
+import { showResultError } from '@/core/client/errors'
 import { StatsLabelField } from '@/modules/stats/components/shared/stats-label-field'
 import type {
   FileDownloadByPersonRow,
@@ -77,11 +77,7 @@ export default function FileDownloadAuditClient() {
     })
     setLoadingPerson(false)
     if (!res.success) {
-      addToast({
-        title: '加载失败',
-        description: res.message ?? '请稍后重试',
-        color: 'danger',
-      })
+      showResultError(res, '加载失败')
       setByPerson([])
       return
     }
@@ -101,11 +97,7 @@ export default function FileDownloadAuditClient() {
       })
       setLoadingDetails(false)
       if (!res.success) {
-        addToast({
-          title: '加载失败',
-          description: res.message ?? '请稍后重试',
-          color: 'danger',
-        })
+        showResultError(res, '加载失败')
         setDetails([])
         setDetailsTotal(0)
         return

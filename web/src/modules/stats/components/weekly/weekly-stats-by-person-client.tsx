@@ -1,5 +1,6 @@
 'use client'
 
+import { showResultError } from '@/core/client/errors'
 import {
   Chip,
   Spinner,
@@ -9,7 +10,6 @@ import {
   TableColumn,
   TableHeader,
   TableRow,
-  addToast,
 } from '@heroui/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cn } from '@heroui/react'
@@ -47,11 +47,7 @@ export default function WeeklyStatsByPersonClient({
     )
     setLoading(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message,
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
       setRows([])
       return
     }

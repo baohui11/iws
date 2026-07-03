@@ -7,7 +7,6 @@ import {
   Tab,
   Tabs,
   Tooltip,
-  addToast,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import NextLink from 'next/link'
@@ -23,6 +22,7 @@ import {
 } from 'react'
 
 import SubpageHeader from '@/components/common/subpage-header'
+import { showResultError } from '@/core/client/errors'
 import FileTypeIcon from '@/modules/files/components/upload/file-type-icon'
 import { loadMineFilesPageAction } from '@/modules/files/mine/actions'
 import type { FilesMineTab, MineFileRow } from '@/modules/files/types'
@@ -143,11 +143,7 @@ export default function FilesMineClient({
     loadingRef.current = false
     setLoadingMore(false)
     if (!res.success) {
-      addToast({
-        title: '加载失败',
-        description: res.message ?? '请稍后重试',
-        color: 'danger',
-      })
+      showResultError(res, '加载失败')
       return
     }
     setRows((prev) => {

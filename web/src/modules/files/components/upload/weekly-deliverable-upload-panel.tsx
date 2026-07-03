@@ -15,6 +15,7 @@ import {
   beginDeliverableFileUploadAction,
   completeDeliverableFileUploadAction,
 } from '@/modules/files/upload/actions'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import { uploadFileToSignedUrl } from '@/modules/files/upload/direct-upload-client'
 import DeliverableReferencePickerModal from '@/modules/files/components/upload/deliverable-reference-picker-modal'
 import FileTypeIcon from '@/modules/files/components/upload/file-type-icon'
@@ -174,10 +175,9 @@ export default function WeeklyDeliverableUploadPanel({
 
   const submitOne = async (item: QueueItem) => {
     if (!item.parsed) {
-      addToast({
+      showErrorToast({
         title: '文件名不符合规则',
-        description: item.parseError ?? DELIVERABLE_FILENAME_RULE_HINT,
-        color: 'danger',
+        message: item.parseError ?? DELIVERABLE_FILENAME_RULE_HINT,
       })
       return
     }
@@ -187,7 +187,7 @@ export default function WeeklyDeliverableUploadPanel({
       existingDeliverableFiles
     )
     if (linkErr) {
-      addToast({ title: '逻辑名不一致', description: linkErr, color: 'danger' })
+      showErrorToast({ title: '逻辑名不一致', message: linkErr })
       return
     }
     setUploadingItemId(item.id)
@@ -208,11 +208,7 @@ export default function WeeklyDeliverableUploadPanel({
         favorite: item.favorite,
       })
       if (!begin.success) {
-        addToast({
-          title: '提交失败',
-          description: begin.message,
-          color: 'danger',
-        })
+        showResultError(begin, `${item.file.name} 提交失败`)
         return
       }
 
@@ -230,18 +226,10 @@ export default function WeeklyDeliverableUploadPanel({
         removeItem(item.id)
         onRefreshOptions()
       } else {
-        addToast({
-          title: '提交失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, `${item.file.name} 提交失败`)
       }
     } catch (e) {
-      addToast({
-        title: '提交失败',
-        description: e instanceof Error ? e.message : '上传失败',
-        color: 'danger',
-      })
+      showErrorToast({ title: `${item.file.name} 提交失败`, error: e })
     } finally {
       setUploadingItemId(null)
       setUploadProgress(0)

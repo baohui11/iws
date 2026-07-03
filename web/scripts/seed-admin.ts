@@ -26,8 +26,10 @@ if (existing[0]) {
 await db.insert(users).values({
   email,
   name: '系统管理员',
+  employeeNo: 'ADMIN',
   role: 'admin',
   passwordHash: await hashPassword(password),
+  isActive: true,
 })
 
 console.log(`已创建管理员：${email} / ${password}`)

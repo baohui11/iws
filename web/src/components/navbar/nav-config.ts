@@ -7,7 +7,7 @@ export interface NavConfig {
   label: string
   href: string
   activeOn?: string[]
-  children?: { label: string; href: string }[]
+  children?: { label: string; href: string; adminOnly?: boolean }[]
   visibility: NavVisibility
 }
 
@@ -47,13 +47,15 @@ export const navConfig: NavConfig[] = [
   },
   {
     label: '系统管理',
-    href: '/admin/users',
+    href: '/admin/departments',
     activeOn: ['/admin'],
     visibility: 'admin',
     children: [
+      { label: '部门管理', href: '/admin/departments', adminOnly: true },
+      { label: '数据权限', href: '/admin/data-scopes', adminOnly: true },
       { label: '用户管理', href: '/admin/users' },
-      { label: '部门管理', href: '/admin/departments' },
       { label: '项目管理', href: '/admin/projects' },
+      { label: 'OA 同步', href: '/admin/oa-sync', adminOnly: true },
     ],
   },
 ]
@@ -79,5 +81,17 @@ export function isNavItemVisible(
 export function getNavConfigForUser(
   user: CurrentUser | null | undefined
 ): NavConfig[] {
-  return navConfig.filter((item) => isNavItemVisible(item, user))
+  return navConfig
+    .filter((item) => isNavItemVisible(item, user))
+    .map((item) => {
+      if (item.visibility !== 'admin') return item
+      const children =
+        item.children?.filter((child) => !child.adminOnly || user?.role === 'admin') ??
+        []
+      return {
+        ...item,
+        href: user?.role === 'admin' ? '/admin/departments' : '/admin/users',
+        children,
+      }
+    })
 }

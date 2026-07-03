@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { Button, Chip, Tooltip, addToast, cn } from '@heroui/react'
+import { Button, Chip, Tooltip, cn } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { loadMyFilledReportsAction } from '@/modules/weekly/reports/actions'
+import { showResultError } from '@/core/client/errors'
 import ProjectHerouiMultiSelect from '@/modules/weekly/components/filters/project-heroui-multi-select'
 import WeekRangeSelects from '@/modules/weekly/components/filters/week-range-selects'
 import { WEEKLY_REPORTS_PAGE_SIZE } from '@/constants/weekly-reports-list'
@@ -142,11 +143,7 @@ export default function MyFilledReportsView({
       })
       setIsLoading(false)
       if (!result.success) {
-        addToast({
-          title: '加载失败',
-          description: result.message ?? '获取周报失败',
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
       } else if (result.data) {
         setRows(result.data.rows)
         setTotal(result.data.total)
@@ -178,11 +175,7 @@ export default function MyFilledReportsView({
     loadingMoreRef.current = false
     setLoadingMore(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message ?? '获取周报失败',
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
     } else if (result.data) {
       setRows((prev) => {
         const seen = new Set(prev.map((r) => r.id))

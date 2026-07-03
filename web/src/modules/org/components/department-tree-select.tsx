@@ -1,16 +1,8 @@
 'use client'
 
-import { Fragment, useMemo } from 'react'
-import { Select, SelectItem } from '@heroui/react'
-import type { Selection } from '@heroui/react'
+import { useMemo } from 'react'
+import SearchableSelect from '@/components/common/searchable-select'
 import type { DepartmentNode } from '@/modules/org/departments/repo'
-
-function selectionToId(selection: Selection): string {
-  if (selection === 'all') return ''
-  return Array.from(selection).map(String)[0] ?? ''
-}
-
-const EMPTY_KEY = '__dept_empty__'
 
 interface DepartmentTreeSelectProps {
   departments: DepartmentNode[]
@@ -26,6 +18,7 @@ interface DepartmentTreeSelectProps {
   description?: string
   variant?: 'flat' | 'bordered' | 'underlined' | 'faded'
   className?: string
+  includeInactive?: boolean
 }
 
 function flattenDepartments(
@@ -43,14 +36,7 @@ function flattenDepartments(
     const fullName = parentName ? `${parentName} / ${dept.name}` : dept.name
     result.push({ id: dept.id, name: dept.name, fullName, dept })
     if (dept.children && dept.children.length > 0) {
-      for (const child of dept.children) {
-        result.push({
-          id: child.id,
-          name: child.name,
-          fullName: `${fullName} / ${child.name}`,
-          dept: child,
-        })
-      }
+      result.push(...flattenDepartments(dept.children, fullName))
     }
   }
   return result
@@ -63,9 +49,8 @@ function findDepartment(
   for (const dept of departments) {
     if (dept.id === id) return dept
     if (dept.children) {
-      for (const child of dept.children) {
-        if (child.id === id) return child
-      }
+      const child = findDepartment(dept.children, id)
+      if (child) return child
     }
   }
   return null
@@ -85,31 +70,51 @@ export default function DepartmentTreeSelect({
   description,
   variant = 'underlined',
   className,
+  includeInactive = false,
 }: DepartmentTreeSelectProps) {
-  const options = useMemo(() => flattenDepartments(departments), [departments])
+  const filteredDepartments = useMemo(() => {
+    if (includeInactive) return departments
+    const filterActive = (items: DepartmentNode[]): DepartmentNode[] =>
+      items
+        .map((dept) => ({
+          ...dept,
+          children: dept.children ? filterActive(dept.children) : [],
+        }))
+        .filter((dept) => dept.is_active)
+    return filterActive(departments)
+  }, [departments, includeInactive])
 
-  const selectedKeys = useMemo((): Selection => {
-    if (value) return new Set([value])
-    if (emptyOptionLabel) return new Set([EMPTY_KEY])
-    return new Set()
-  }, [value, emptyOptionLabel])
+  const options = useMemo(
+    () => flattenDepartments(filteredDepartments),
+    [filteredDepartments]
+  )
+  const selectOptions = useMemo(
+    () =>
+      options.map((option) => ({
+        key: option.id,
+        label: option.fullName,
+        description: option.dept.code ? `(${option.dept.code})` : undefined,
+        searchText: `${option.fullName} ${option.name} ${option.dept.code ?? ''}`,
+      })),
+    [options]
+  )
 
-  const handleSelectionChange = (keys: Selection) => {
-    const selectedId = selectionToId(keys)
-    if (selectedId === EMPTY_KEY || !selectedId) {
+  const handleChange = (selectedId: string) => {
+    if (!selectedId) {
       onChange?.('', null)
       return
     }
-    const dept = findDepartment(departments, selectedId)
+    const dept = findDepartment(filteredDepartments, selectedId)
     onChange?.(selectedId, dept ?? null)
   }
 
   return (
-    <Select
+    <SearchableSelect
       label={label}
       placeholder={placeholder}
-      selectedKeys={selectedKeys}
-      onSelectionChange={handleSelectionChange}
+      value={value}
+      onChange={handleChange}
+      options={selectOptions}
       isRequired={isRequired}
       isDisabled={isDisabled}
       size={size}
@@ -117,25 +122,7 @@ export default function DepartmentTreeSelect({
       description={description}
       variant={variant}
       className={className}
-      disallowEmptySelection={!!emptyOptionLabel}
-    >
-      <Fragment>
-        {emptyOptionLabel ? (
-          <SelectItem key={EMPTY_KEY} textValue={emptyOptionLabel}>
-            {emptyOptionLabel}
-          </SelectItem>
-        ) : null}
-        {options.map((option) => (
-          <SelectItem key={option.id} textValue={option.fullName}>
-            <div className="flex flex-col">
-              <span>{option.fullName}</span>
-              {option.dept.code && (
-                <span className="text-default-400 text-xs">({option.dept.code})</span>
-              )}
-            </div>
-          </SelectItem>
-        ))}
-      </Fragment>
-    </Select>
+      emptyOptionLabel={emptyOptionLabel}
+    />
   )
 }

@@ -1,7 +1,14 @@
 /**
  * 与数据库 enum system_roles 一致。客户端从此处引用。
  */
-export const SYSTEM_ROLE_VALUES = ['user', 'dept_ld', 'dept_admin', 'admin'] as const
+export const SYSTEM_ROLE_VALUES = [
+  'user',
+  'dept_ld',
+  'dept_admin',
+  'bp',
+  'company_ld',
+  'admin',
+] as const
 
 export type SystemRoleValue = (typeof SYSTEM_ROLE_VALUES)[number]
 
@@ -9,6 +16,8 @@ export const SYSTEM_ROLE_LABEL: Record<SystemRoleValue, string> = {
   user: '普通用户',
   dept_ld: '部门LD',
   dept_admin: '部门管理员',
+  bp: 'BP',
+  company_ld: '公司领导',
   admin: '系统管理员',
 }
 

@@ -241,6 +241,7 @@ async function assertMemberActiveProject(
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectId, projectId),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
@@ -249,14 +250,14 @@ async function assertMemberActiveProject(
   if (!memRows.length) throw new BusinessError('您不是该项目成员')
 
   const projRows = await db
-    .select({ project_status: projects.projectStatus })
+    .select({ is_active: projects.isActive })
     .from(projects)
     .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
     .limit(1)
 
   const proj = projRows[0]
-  if (proj?.project_status !== 'active') {
-    throw new BusinessError('仅「进行中」的项目可上传文件')
+  if (!proj?.is_active) {
+    throw new BusinessError('仅已激活的项目可上传文件')
   }
 }
 

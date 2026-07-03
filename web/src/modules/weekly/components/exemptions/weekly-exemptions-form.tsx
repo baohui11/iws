@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { showResultError } from '@/core/client/errors'
 import {
   Button,
   Select,
@@ -84,11 +85,7 @@ export default function WeeklyExemptionsForm({
         setWeekCode('')
         router.refresh()
       } else {
-        addToast({
-          title: '保存失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, '保存失败')
       }
     })
   }
@@ -100,11 +97,7 @@ export default function WeeklyExemptionsForm({
         addToast({ title: '已删除', color: 'success', timeout: 2000 })
         router.refresh()
       } else {
-        addToast({
-          title: '删除失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, '删除失败')
       }
     })
   }

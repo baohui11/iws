@@ -31,19 +31,23 @@ export const projectRoles = pgEnum('project_roles', [
 export const projectStage = pgEnum('project_stage', ['实施阶段', '销售阶段'])
 
 export const projectStatus = pgEnum('project_status', [
-  'active',
-  'preparing',
-  'completed',
-  'archived',
-  'suspended',
+  '进行中',
+  '预结项',
+  '已结项',
+  '终止',
+  '已关闭',
 ])
 
 export const systemRoles = pgEnum('system_roles', [
   'user',
   'dept_ld',
   'dept_admin',
+  'bp',
+  'company_ld',
   'admin',
 ])
+
+export const dataScopeType = pgEnum('data_scope_type', ['department', 'all'])
 
 export const weeklyReportAction = pgEnum('weekly_report_action', [
   'approve',

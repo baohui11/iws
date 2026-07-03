@@ -4,7 +4,6 @@ import { departments, projectMembers, projects } from '@/core/db/schema'
 import type { SystemRole } from '@/core/auth/current-user'
 import { getDepartmentIdsForListFilter } from '@/modules/org/departments/repo'
 import { PROJECT_STATUS_VALUES } from '@/constants/project-status'
-import { parseProjectRole, type ProjectRoleValue } from '@/constants/project-roles'
 import type { ProjectDetail, ProjectListItem } from '@/modules/projects/types'
 import { getProjectById } from '@/modules/projects/repo'
 import type { WeeklyProjectListItem } from '@/modules/projects/types'
@@ -35,7 +34,11 @@ async function fetchMemberProjectIds(userId: string): Promise<string[]> {
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
     .where(
-      and(eq(projectMembers.userId, userId), isNull(projectMembers.deletedAt))
+      and(
+        eq(projectMembers.userId, userId),
+        eq(projectMembers.isActive, true),
+        isNull(projectMembers.deletedAt)
+      )
     )
   const ids = rows
     .map((r) => r.projectId)
@@ -46,8 +49,8 @@ async function fetchMemberProjectIds(userId: string): Promise<string[]> {
 async function fetchMyProjectRoles(
   userId: string,
   projectIds: string[]
-): Promise<Map<string, ProjectRoleValue | null>> {
-  const map = new Map<string, ProjectRoleValue | null>()
+): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>()
   if (!projectIds.length) return map
 
   const db = getDb()
@@ -61,13 +64,14 @@ async function fetchMyProjectRoles(
       and(
         eq(projectMembers.userId, userId),
         inArray(projectMembers.projectId, projectIds),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
 
   for (const r of rows) {
     if (r.projectId) {
-      map.set(r.projectId, parseProjectRole(r.projectRole))
+      map.set(r.projectId, r.projectRole?.trim() || null)
     }
   }
   return map
@@ -88,33 +92,35 @@ function mapRowToWeeklyItem(
     id: string
     projectNo: string | null
     projectName: string | null
-    customerName: string | null
     fiscalYear: string | null
     projectStatus: ProjectListItem['project_status']
     projectStage: string | null
+    projectType: string | null
     startDate: string | null
     endDate: string | null
     contractNo: string | null
     departmentId: string | null
     departmentName: string | null
+    isActive: boolean
   },
   memberSet: Set<string>,
-  roleByProject: Map<string, ProjectRoleValue | null>
+  roleByProject: Map<string, string | null>
 ): WeeklyProjectListItem {
   const participating = memberSet.has(row.id)
   return {
     id: row.id,
     project_no: row.projectNo,
     project_name: row.projectName,
-    customer_name: row.customerName,
     fiscal_year: row.fiscalYear,
     project_status: row.projectStatus,
     project_stage: row.projectStage,
+    project_type: row.projectType,
     start_date: row.startDate,
     end_date: row.endDate,
     contract_no: row.contractNo,
     department_id: row.departmentId,
     department_name: row.departmentName,
+    is_active: row.isActive,
     is_participating: participating,
     my_project_role: participating ? roleByProject.get(row.id) ?? null : null,
   }
@@ -147,7 +153,7 @@ export async function getMyWeeklyProjectsList(
   const scopeDeptIds = await getDeptRoleScopeIds(role, userDepartmentId)
 
   const db = getDb()
-  const conditions = [isNull(projects.deletedAt)]
+  const conditions = [isNull(projects.deletedAt), eq(projects.isActive, true)]
 
   if (keyword?.trim()) {
     const k = `%${keyword.trim()}%`
@@ -155,7 +161,6 @@ export async function getMyWeeklyProjectsList(
       or(
         ilike(projects.projectNo, k),
         ilike(projects.projectName, k),
-        ilike(projects.customerName, k),
         ilike(projects.contractNo, k)
       )!
     )
@@ -227,15 +232,16 @@ export async function getMyWeeklyProjectsList(
       id: projects.id,
       projectNo: projects.projectNo,
       projectName: projects.projectName,
-      customerName: projects.customerName,
       fiscalYear: projects.fiscalYear,
       projectStatus: projects.projectStatus,
       projectStage: projects.projectStage,
+      projectType: projects.projectType,
       startDate: projects.startDate,
       endDate: projects.endDate,
       contractNo: projects.contractNo,
       departmentId: projects.departmentId,
       departmentName: departments.name,
+      isActive: projects.isActive,
     })
     .from(projects)
     .leftJoin(departments, eq(projects.departmentId, departments.id))
@@ -281,7 +287,13 @@ export async function canAccessWeeklyProject(
     const rows = await db
       .select({ id: projects.id })
       .from(projects)
-      .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+      .where(
+        and(
+          eq(projects.id, projectId),
+          isNull(projects.deletedAt),
+          eq(projects.isActive, true)
+        )
+      )
       .limit(1)
     return rows.length > 0
   }
@@ -293,7 +305,13 @@ export async function canAccessWeeklyProject(
   const projRows = await db
     .select({ departmentId: projects.departmentId })
     .from(projects)
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+    .where(
+      and(
+        eq(projects.id, projectId),
+        isNull(projects.deletedAt),
+        eq(projects.isActive, true)
+      )
+    )
     .limit(1)
 
   const proj = projRows[0]
@@ -325,19 +343,26 @@ export async function getWeeklyProjectSummaryById(
       id: projects.id,
       projectNo: projects.projectNo,
       projectName: projects.projectName,
-      customerName: projects.customerName,
       fiscalYear: projects.fiscalYear,
       projectStatus: projects.projectStatus,
       projectStage: projects.projectStage,
+      projectType: projects.projectType,
       startDate: projects.startDate,
       endDate: projects.endDate,
       contractNo: projects.contractNo,
       departmentId: projects.departmentId,
       departmentName: departments.name,
+      isActive: projects.isActive,
     })
     .from(projects)
     .leftJoin(departments, eq(projects.departmentId, departments.id))
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+    .where(
+      and(
+        eq(projects.id, projectId),
+        isNull(projects.deletedAt),
+        eq(projects.isActive, true)
+      )
+    )
     .limit(1)
 
   const row = rows[0]
@@ -347,14 +372,15 @@ export async function getWeeklyProjectSummaryById(
     id: row.id,
     project_no: row.projectNo,
     project_name: row.projectName,
-    customer_name: row.customerName,
     fiscal_year: row.fiscalYear,
     project_status: row.projectStatus as ProjectListItem['project_status'],
     project_stage: row.projectStage,
+    project_type: row.projectType,
     start_date: row.startDate,
     end_date: row.endDate,
     contract_no: row.contractNo,
     department_id: row.departmentId,
     department_name: row.departmentName ?? null,
+    is_active: row.isActive,
   }
 }

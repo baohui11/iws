@@ -7,6 +7,7 @@ import solarIcons from '@iconify-json/solar/icons.json'
 import Link from 'next/link'
 import { importProjectDeliverables } from '@/modules/projects/actions'
 import { parseProjectDeliverablesCsv } from '@/modules/projects/csv'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 
 addCollection(solarIcons as Parameters<typeof addCollection>[0])
 
@@ -50,17 +51,13 @@ export default function ImportProjectDeliverablesForm() {
           .slice(0, 5)
           .map((r) => `${r.project_no}/${r.name}: ${r.message}`)
           .join('；')
-        addToast({ title: '部分失败', description: detail, color: 'danger', timeout: 8000 })
+        showErrorToast({ title: '部分失败', message: detail })
       }
       if (inputRef.current) inputRef.current.value = ''
       setFileName(null)
       setPreviewCount(null)
     } else {
-      addToast({
-        title: '导入失败',
-        description: result.success ? undefined : result.message,
-        color: 'danger',
-      })
+      showResultError(result, '导入失败')
     }
   }
 

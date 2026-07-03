@@ -4,29 +4,29 @@ import {
   text,
   varchar,
   smallint,
+  boolean,
+  index,
   timestamp,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
-import { systemRoles } from './enums'
+import { dataScopeType, systemRoles } from './enums'
 
 export const departments = pgTable('departments', {
   id: uuid().defaultRandom().primaryKey(),
   createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
-  name: text().notNull().unique(),
+  name: text().notNull(),
   code: text().notNull().unique(),
   parentId: uuid().references((): AnyPgColumn => departments.id, {
     onDelete: 'cascade',
   }),
   level: smallint(),
+  isActive: boolean().default(false).notNull(),
   deletedAt: timestamp({ withTimezone: true }),
-  /** 部门负责人；逻辑指向 users.id（避免与 users.departmentId 形成建表期循环，不加 DB 外键约束） */
-  leaderId: uuid(),
 })
 
 export const users = pgTable('users', {
   id: uuid().defaultRandom().primaryKey(),
   createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
-  /** bcrypt 密码哈希（替代原 Supabase Auth） */
   passwordHash: text(),
   name: text(),
   employeeNo: text().unique(),
@@ -37,6 +37,30 @@ export const users = pgTable('users', {
     onDelete: 'set null',
   }),
   avatarUrl: text(),
+  isActive: boolean().default(false).notNull(),
+  isDeptLeader: boolean().default(false).notNull(),
   deletedAt: timestamp({ withTimezone: true }),
   role: systemRoles().default('user'),
+  tags: text(),
 })
+
+export const userDataScopes = pgTable(
+  'user_data_scopes',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp({ withTimezone: true }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    scopeType: dataScopeType().notNull(),
+    departmentId: uuid().references(() => departments.id, {
+      onDelete: 'cascade',
+    }),
+    includeChildren: boolean().default(true).notNull(),
+  },
+  (t) => [
+    index('idx_user_data_scopes_user').on(t.userId),
+    index('idx_user_data_scopes_department').on(t.departmentId),
+  ]
+)

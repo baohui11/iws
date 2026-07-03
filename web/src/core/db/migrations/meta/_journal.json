@@ -15,6 +15,90 @@
       "when": 1782399600000,
       "tag": "0001_file_processing_pipeline",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782864000000,
+      "tag": "0002_oa_department_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782867600000,
+      "tag": "0003_department_name_not_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782871200000,
+      "tag": "0004_oa_sync_logs_and_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782950400000,
+      "tag": "0005_oa_project_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782954000000,
+      "tag": "0006_oa_project_sync_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782957600000,
+      "tag": "0007_project_member_active_and_oa_prune",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782961200000,
+      "tag": "0008_project_status_values",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782964800000,
+      "tag": "0009_project_member_stage_enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782968400000,
+      "tag": "0010_project_member_sync_key_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782972000000,
+      "tag": "0011_user_data_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783046400000,
+      "tag": "0012_department_active",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783050000000,
+      "tag": "0013_user_tags",
+      "breakpoints": true
     }
   ]
 }

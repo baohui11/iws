@@ -1,7 +1,12 @@
+import { notFound } from 'next/navigation'
+import { getCurrentUser } from '@/core/auth'
 import { getDepartmentList } from '@/modules/org/departments/repo'
 import DepartmentTable from '@/modules/org/components/departments/department-table'
 
 export default async function AdminDepartmentsPage() {
+  const currentUser = await getCurrentUser()
+  if (currentUser?.role !== 'admin') notFound()
+
   const { departments, total } = await getDepartmentList({ page: 1, pageSize: 20 })
 
   return (
@@ -10,7 +15,7 @@ export default async function AdminDepartmentsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">部门管理</h1>
           <p className="text-foreground/50 mt-1 text-sm">
-            维护两级部门、部门 LD；指定 LD 后用户角色将同步为「部门 LD」
+            查看 OA 同步部门，维护部门在 IWS 中是否激活
           </p>
         </div>
       </div>

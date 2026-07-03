@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import {
   departments,
@@ -26,6 +26,7 @@ async function fetchPmProjectIds(userId: string): Promise<string[]> {
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectRole, 'pm'),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
@@ -265,10 +266,7 @@ export async function getPmProjectsForExemptions(
       and(
         inArray(projects.id, projectIds),
         isNull(projects.deletedAt),
-        or(
-          inArray(projects.projectStatus, ['active', 'completed', 'suspended']),
-          isNull(projects.projectStatus)
-        )
+        eq(projects.isActive, true)
       )
     )
     .orderBy(projects.projectNo)

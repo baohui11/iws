@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Button, Chip, addToast, cn } from '@heroui/react'
+import { Button, Chip, cn } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { loadProjectWeeklyWeeksAction } from '@/modules/weekly/project-weekly/actions'
+import { showResultError } from '@/core/client/errors'
 import { WEEKLY_PROJECT_WEEKS_PAGE_SIZE } from '@/constants/weekly-reports-list'
 import {
   WEEKLY_REPORT_STATUS_COLOR,
@@ -48,11 +49,7 @@ export default function ProjectWeeklyReportsTab({
     loadingMoreRef.current = false
     setLoadingMore(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message ?? '请稍后重试',
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
     } else if (result.data) {
       setWeeks((prev) => {
         const seen = new Set(prev.map((w) => w.week_code))

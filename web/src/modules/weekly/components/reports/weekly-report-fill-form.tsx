@@ -1,5 +1,6 @@
 'use client'
 
+import { showResultError } from '@/core/client/errors'
 import {
   useCallback,
   useEffect,
@@ -265,11 +266,7 @@ export default function WeeklyReportFillForm({
 
       if (!res.success) {
         if (!opts.silent) {
-          addToast({
-            title: '保存失败',
-            description: res.message,
-            color: 'danger',
-          })
+          showResultError(res, '保存失败')
         }
         return false
       }
@@ -399,11 +396,7 @@ export default function WeeklyReportFillForm({
     })
     setDeletingKey(null)
     if (!res.success) {
-      addToast({
-        title: '删除失败',
-        description: res.message,
-        color: 'danger',
-      })
+      showResultError(res, '删除失败')
       return
     }
     addToast({ title: '已删除', color: 'success' })
@@ -466,11 +459,7 @@ export default function WeeklyReportFillForm({
         noNextWeekPlan: noPlanNextWeek,
       })
       if (!res.success) {
-        addToast({
-          title: '提交失败',
-          description: res.message,
-          color: 'danger',
-        })
+        showResultError(res, '提交失败')
         return
       }
       addToast({ title: '已提交审批', color: 'success' })

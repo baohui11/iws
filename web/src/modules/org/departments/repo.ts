@@ -1,6 +1,7 @@
 import { and, asc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
-import { departments, users } from '@/core/db/schema'
+import { departments, userDataScopes, users } from '@/core/db/schema'
+import type { CurrentUser } from '@/core/auth'
 
 export interface DepartmentNode {
   id: string
@@ -8,6 +9,7 @@ export interface DepartmentNode {
   parent_id: string | null
   code: string
   level: number | null
+  is_active: boolean
   children?: DepartmentNode[]
 }
 
@@ -17,6 +19,7 @@ export interface DepartmentAdminRow {
   name: string
   parent_id: string | null
   level: number | null
+  is_active: boolean
   created_at: string
   deleted_at: string | null
 }
@@ -40,23 +43,39 @@ export interface DepartmentListResult {
   pageSize: number
 }
 
-export interface InsertDepartmentData {
+export interface OaDepartmentSyncData {
   code: string
   name: string
-  parent_id: string | null
+  parentCode: string | null
   level: number | null
+  deletedAt: Date | null
 }
 
-export interface UpdateDepartmentData {
-  code?: string
-  name?: string
-  parent_id?: string | null
-  level?: number | null
+export interface MissingDepartmentParent {
+  code: string
+  parentCode: string
+}
+
+export interface OaDepartmentSyncResult {
+  pulledCount: number
+  createdCount: number
+  updatedCount: number
+  parentUpdatedCount: number
+  unchangedCount: number
+  deletedCount: number
+  missingParents: MissingDepartmentParent[]
 }
 
 function toIso(d: Date | string | null): string | null {
   if (d == null) return null
   return d instanceof Date ? d.toISOString() : d
+}
+
+function sameNullableDate(a: Date | string | null, b: Date | null): boolean {
+  if (a == null && b == null) return true
+  if (a == null || b == null) return false
+  const left = a instanceof Date ? a : new Date(a)
+  return left.getTime() === b.getTime()
 }
 
 export async function findDepartmentIdByName(
@@ -75,16 +94,23 @@ export async function findDepartmentIdByName(
 }
 
 export async function getDepartmentIdsForListFilter(
-  departmentId: string
+  departmentId: string,
+  options: { includeInactive?: boolean } = {}
 ): Promise<string[]> {
   const db = getDb()
+  const where = options.includeInactive
+    ? isNull(departments.deletedAt)
+    : and(isNull(departments.deletedAt), eq(departments.isActive, true))
   const list = await db
-    .select({ id: departments.id, parent_id: departments.parentId })
+    .select({
+      id: departments.id,
+      parent_id: departments.parentId,
+    })
     .from(departments)
-    .where(isNull(departments.deletedAt))
+    .where(where)
 
   const self = list.find((r) => r.id === departmentId)
-  if (!self) return [departmentId]
+  if (!self) return []
   if (self.parent_id != null) return [self.id]
 
   const childrenByParent = new Map<string, string[]>()
@@ -106,8 +132,55 @@ export async function getDepartmentIdsForListFilter(
   return ids
 }
 
-export async function getDepartmentTree(): Promise<DepartmentNode[]> {
+export async function getAdminDepartmentScopeIds(
+  user: Pick<CurrentUser, 'id' | 'role' | 'departmentId'>,
+  options: { includeInactive?: boolean } = {}
+): Promise<string[] | null> {
+  if (user.role === 'admin') return null
+
   const db = getDb()
+  const scopes = await db
+    .select({
+      scope_type: userDataScopes.scopeType,
+      department_id: userDataScopes.departmentId,
+    })
+    .from(userDataScopes)
+    .where(and(eq(userDataScopes.userId, user.id), isNull(userDataScopes.deletedAt)))
+
+  if (scopes.some((scope) => scope.scope_type === 'all')) return null
+
+  const seedIds = [
+    user.departmentId,
+    ...scopes
+      .filter((scope) => scope.scope_type === 'department')
+      .map((scope) => scope.department_id),
+  ].filter((id): id is string => Boolean(id))
+
+  const ids = new Set<string>()
+  for (const id of seedIds) {
+    const expanded = await getDepartmentIdsForListFilter(id, options)
+    expanded.forEach((deptId) => ids.add(deptId))
+  }
+  return [...ids]
+}
+
+export async function getDepartmentTree(
+  options: {
+    includeInactive?: boolean
+    allowedDepartmentIds?: string[] | null
+  } = {}
+): Promise<DepartmentNode[]> {
+  const db = getDb()
+  const conds = [isNull(departments.deletedAt)]
+  if (!options.includeInactive) conds.push(eq(departments.isActive, true))
+  if (options.allowedDepartmentIds) {
+    conds.push(
+      inArray(
+        departments.id,
+        options.allowedDepartmentIds.length ? options.allowedDepartmentIds : ['']
+      )
+    )
+  }
   const data = await db
     .select({
       id: departments.id,
@@ -115,12 +188,16 @@ export async function getDepartmentTree(): Promise<DepartmentNode[]> {
       parent_id: departments.parentId,
       code: departments.code,
       level: departments.level,
+      is_active: departments.isActive,
     })
     .from(departments)
-    .where(isNull(departments.deletedAt))
+    .where(and(...conds))
     .orderBy(asc(departments.code))
 
-  const roots = data.filter((d) => d.parent_id == null)
+  const departmentIds = new Set(data.map((d) => d.id))
+  const roots = data.filter(
+    (d) => d.parent_id == null || !departmentIds.has(d.parent_id)
+  )
   const childrenByParent = new Map<string, DepartmentNode[]>()
   for (const d of data) {
     if (d.parent_id == null) continue
@@ -129,15 +206,6 @@ export async function getDepartmentTree(): Promise<DepartmentNode[]> {
     childrenByParent.set(d.parent_id, bucket)
   }
   return roots.map((r) => ({ ...r, children: childrenByParent.get(r.id) ?? [] }))
-}
-
-export async function getRootDepartments() {
-  const db = getDb()
-  return db
-    .select({ id: departments.id, name: departments.name, code: departments.code })
-    .from(departments)
-    .where(and(isNull(departments.deletedAt), isNull(departments.parentId)))
-    .orderBy(asc(departments.code))
 }
 
 async function attachRelations(
@@ -170,7 +238,7 @@ async function attachRelations(
       .where(
         and(
           inArray(users.departmentId, deptIds),
-          eq(users.role, 'dept_ld'),
+          eq(users.isDeptLeader, true),
           isNull(users.deletedAt)
         )
       )
@@ -223,6 +291,7 @@ export async function getDepartmentList(
       name: departments.name,
       parent_id: departments.parentId,
       level: departments.level,
+      is_active: departments.isActive,
       created_at: departments.createdAt,
       deleted_at: departments.deletedAt,
     })
@@ -257,6 +326,7 @@ export async function getDepartmentById(
       name: departments.name,
       parent_id: departments.parentId,
       level: departments.level,
+      is_active: departments.isActive,
       created_at: departments.createdAt,
       deleted_at: departments.deletedAt,
     })
@@ -274,46 +344,139 @@ export async function getDepartmentById(
   return withRel
 }
 
-export async function insertDepartment(row: InsertDepartmentData): Promise<string> {
-  const db = getDb()
-  const inserted = await db
-    .insert(departments)
-    .values({
-      code: row.code,
-      name: row.name,
-      parentId: row.parent_id,
-      level: row.level,
-    })
-    .returning({ id: departments.id })
-  return inserted[0].id
-}
-
-export async function updateDepartment(id: string, updates: UpdateDepartmentData) {
+export async function updateDepartmentActive(id: string, isActive: boolean) {
   const db = getDb()
   await db
     .update(departments)
-    .set({
-      ...(updates.code !== undefined ? { code: updates.code } : {}),
-      ...(updates.name !== undefined ? { name: updates.name } : {}),
-      ...(updates.parent_id !== undefined ? { parentId: updates.parent_id } : {}),
-      ...(updates.level !== undefined ? { level: updates.level } : {}),
-    })
+    .set({ isActive })
     .where(eq(departments.id, id))
 }
 
-export async function softDeleteDepartment(id: string) {
+export async function syncDepartmentsFromOa(
+  rows: OaDepartmentSyncData[]
+): Promise<OaDepartmentSyncResult> {
   const db = getDb()
-  await db
-    .update(departments)
-    .set({ deletedAt: new Date() })
-    .where(eq(departments.id, id))
-}
+  const codes = [...new Set(rows.map((row) => row.code))]
+  if (codes.length === 0) {
+    return {
+      pulledCount: 0,
+      createdCount: 0,
+      updatedCount: 0,
+      parentUpdatedCount: 0,
+      unchangedCount: 0,
+      deletedCount: 0,
+      missingParents: [],
+    }
+  }
 
-export async function countChildDepartments(parentId: string): Promise<number> {
-  const db = getDb()
-  const [{ value }] = await db
-    .select({ value: sql<number>`count(*)::int` })
-    .from(departments)
-    .where(and(eq(departments.parentId, parentId), isNull(departments.deletedAt)))
-  return value ?? 0
+  return db.transaction(async (tx) => {
+    const existingRows = await tx
+      .select({
+        id: departments.id,
+        code: departments.code,
+        name: departments.name,
+        parentId: departments.parentId,
+        level: departments.level,
+        deletedAt: departments.deletedAt,
+      })
+      .from(departments)
+      .where(inArray(departments.code, codes))
+
+    const existingByCode = new Map(existingRows.map((row) => [row.code, row]))
+    const changedCodes = new Set<string>()
+    let createdCount = 0
+    let updatedCount = 0
+
+    for (const row of rows) {
+      const existing = existingByCode.get(row.code)
+      if (!existing) {
+        const inserted = await tx
+          .insert(departments)
+          .values({
+            code: row.code,
+            name: row.name,
+            parentId: null,
+            level: row.level,
+            deletedAt: row.deletedAt,
+          })
+          .returning({
+            id: departments.id,
+            code: departments.code,
+            name: departments.name,
+            parentId: departments.parentId,
+            level: departments.level,
+            deletedAt: departments.deletedAt,
+          })
+        existingByCode.set(row.code, inserted[0])
+        changedCodes.add(row.code)
+        createdCount += 1
+        continue
+      }
+
+      const needsUpdate =
+        existing.name !== row.name ||
+        existing.level !== row.level ||
+        !sameNullableDate(existing.deletedAt, row.deletedAt)
+
+      if (!needsUpdate) continue
+
+      const updated = await tx
+        .update(departments)
+        .set({
+          name: row.name,
+          level: row.level,
+          deletedAt: row.deletedAt,
+        })
+        .where(eq(departments.id, existing.id))
+        .returning({
+          id: departments.id,
+          code: departments.code,
+          name: departments.name,
+          parentId: departments.parentId,
+          level: departments.level,
+          deletedAt: departments.deletedAt,
+        })
+      existingByCode.set(row.code, updated[0])
+      changedCodes.add(row.code)
+      updatedCount += 1
+    }
+
+    const missingParents: MissingDepartmentParent[] = []
+    let parentUpdatedCount = 0
+
+    for (const row of rows) {
+      const existing = existingByCode.get(row.code)
+      if (!existing) continue
+
+      let parentId: string | null = null
+      if (row.parentCode) {
+        const parent = existingByCode.get(row.parentCode)
+        if (!parent) {
+          missingParents.push({ code: row.code, parentCode: row.parentCode })
+          continue
+        }
+        parentId = parent.id
+      }
+
+      if (existing.parentId === parentId) continue
+
+      await tx
+        .update(departments)
+        .set({ parentId })
+        .where(eq(departments.id, existing.id))
+      changedCodes.add(row.code)
+      parentUpdatedCount += 1
+      existingByCode.set(row.code, { ...existing, parentId })
+    }
+
+    return {
+      pulledCount: rows.length,
+      createdCount,
+      updatedCount,
+      parentUpdatedCount,
+      unchangedCount: rows.length - changedCodes.size,
+      deletedCount: rows.filter((row) => row.deletedAt != null).length,
+      missingParents,
+    }
+  })
 }

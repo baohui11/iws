@@ -71,6 +71,7 @@ export async function isUserProjectMember(
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectId, projectId),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )

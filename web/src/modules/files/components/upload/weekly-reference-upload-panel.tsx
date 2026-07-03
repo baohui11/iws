@@ -7,6 +7,7 @@ import {
   beginReferenceFileUploadAction,
   completeReferenceFileUploadAction,
 } from '@/modules/files/upload/actions'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import { uploadFileToSignedUrl } from '@/modules/files/upload/direct-upload-client'
 import type { FileSourceValue } from '@/modules/files/types'
 import FileTypeIcon from '@/modules/files/components/upload/file-type-icon'
@@ -151,11 +152,7 @@ export default function WeeklyReferenceUploadPanel({
         favorite: item.favorite,
       })
       if (!begin.success) {
-        addToast({
-          title: '上传失败',
-          description: `${item.file.name}：${begin.message ?? ''}`,
-          color: 'danger',
-        })
+        showResultError(begin, `${item.file.name} 上传失败`)
         setQueue(snapshot.slice(i))
         setUploadProgress(Math.round((i / total) * 100))
         setUploading(false)
@@ -172,11 +169,9 @@ export default function WeeklyReferenceUploadPanel({
           },
         })
       } catch (e) {
-        addToast({
-          title: '上传失败',
-          description:
-            e instanceof Error ? `${item.file.name}：${e.message}` : item.file.name,
-          color: 'danger',
+        showErrorToast({
+          title: `${item.file.name} 上传失败`,
+          error: e,
         })
         setQueue(snapshot.slice(i))
         setUploadProgress(Math.round((i / total) * 100))
@@ -189,11 +184,7 @@ export default function WeeklyReferenceUploadPanel({
         begin.data.uploadToken
       )
       if (!result.success) {
-        addToast({
-          title: '上传失败',
-          description: `${item.file.name}：${result.message ?? ''}`,
-          color: 'danger',
-        })
+        showResultError(result, `${item.file.name} 上传失败`)
         setQueue(snapshot.slice(i))
         setUploadProgress(Math.round((i / total) * 100))
         setUploading(false)

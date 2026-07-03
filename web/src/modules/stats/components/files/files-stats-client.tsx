@@ -1,5 +1,6 @@
 'use client'
 
+import { showResultError } from '@/core/client/errors'
 import {
   Button,
   Input,
@@ -12,7 +13,6 @@ import {
   TableColumn,
   TableHeader,
   TableRow,
-  addToast,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -69,11 +69,7 @@ export default function FilesStatsClient({
       else setLoadingMore(false)
 
       if (!result.success) {
-        addToast({
-          title: '加载失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
         if (!append) setRows([])
         return
       }

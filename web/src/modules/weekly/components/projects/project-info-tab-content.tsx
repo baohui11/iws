@@ -11,18 +11,17 @@ import {
   TableCell,
 } from '@heroui/react'
 import { PROJECT_STATUS_LABEL } from '@/constants/project-status'
-import { PROJECT_ROLE_LABEL } from '@/constants/project-roles'
 import { useProjectDetail } from '@/modules/weekly/components/projects/project-detail-context'
 
 const STATUS_COLOR: Record<
   string,
   'success' | 'warning' | 'primary' | 'default' | 'danger'
 > = {
-  active: 'success',
-  preparing: 'warning',
-  completed: 'primary',
-  archived: 'default',
-  suspended: 'danger',
+  进行中: 'success',
+  预结项: 'warning',
+  已结项: 'primary',
+  终止: 'danger',
+  已关闭: 'default',
 }
 
 function Field({
@@ -60,7 +59,6 @@ export default function ProjectInfoTabContent() {
             <span className="font-mono">{project.project_no ?? '—'}</span>
           </Field>
           <Field label="项目名称">{project.project_name ?? '—'}</Field>
-          <Field label="客户名称">{project.customer_name ?? '—'}</Field>
           <Field label="所属部门">{departmentLabel}</Field>
           <Field label="财年">{project.fiscal_year ?? '—'}</Field>
           <Field label="项目状态">
@@ -83,16 +81,7 @@ export default function ProjectInfoTabContent() {
           <Field label="合同编号">
             <span className="font-mono">{project.contract_no ?? '—'}</span>
           </Field>
-          <Field label="业务类型">{project.business_type ?? '—'}</Field>
-          <Field label="行业分类">{project.industry_category ?? '—'}</Field>
-          <Field label="产品板块">{project.product_block ?? '—'}</Field>
-          <Field label="项目简介" className="sm:col-span-2">
-            <p className="whitespace-pre-wrap text-default-700">
-              {project.project_introduction?.trim()
-                ? project.project_introduction
-                : '—'}
-            </p>
-          </Field>
+          <Field label="项目类型">{project.project_type ?? '—'}</Field>
         </dl>
       </section>
 
@@ -119,9 +108,7 @@ export default function ProjectInfoTabContent() {
                     {m.user_email ?? '—'}
                   </TableCell>
                   <TableCell>
-                    {m.project_role
-                      ? PROJECT_ROLE_LABEL[m.project_role]
-                      : '—'}
+                    {m.project_role ?? '—'}
                   </TableCell>
                 </TableRow>
               ))}

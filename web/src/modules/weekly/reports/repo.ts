@@ -8,7 +8,6 @@ import {
   isNull,
   lte,
   ne,
-  or,
 } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import {
@@ -50,7 +49,11 @@ async function fetchMemberProjectIds(userId: string): Promise<string[]> {
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
     .where(
-      and(eq(projectMembers.userId, userId), isNull(projectMembers.deletedAt))
+      and(
+        eq(projectMembers.userId, userId),
+        eq(projectMembers.isActive, true),
+        isNull(projectMembers.deletedAt)
+      )
     )
   const ids = rows
     .map((r) => r.projectId)
@@ -67,6 +70,7 @@ async function fetchPmProjectIds(userId: string): Promise<string[]> {
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectRole, 'pm'),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
@@ -85,6 +89,7 @@ export async function projectHasPm(projectId: string): Promise<boolean> {
       and(
         eq(projectMembers.projectId, projectId),
         eq(projectMembers.projectRole, 'pm'),
+        eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
@@ -127,10 +132,7 @@ async function fetchProjectsForFilter(
       and(
         inArray(projects.id, projectIds),
         isNull(projects.deletedAt),
-        or(
-          inArray(projects.projectStatus, ['active', 'completed', 'suspended']),
-          isNull(projects.projectStatus)
-        )
+        eq(projects.isActive, true)
       )
     )
     .orderBy(asc(projects.projectNo))

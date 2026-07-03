@@ -2,6 +2,7 @@ import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import { departments, files, projects, users } from '@/core/db/schema'
 import { getDepartmentIdsForListFilter } from '@/modules/org/departments/repo'
+import type { SystemRole } from '@/core/auth/current-user'
 import type { FileStatsPaged, FileStatsRow } from '../types'
 
 function escapeForILike(s: string): string {
@@ -20,7 +21,7 @@ async function projectIdsInDepartmentSubtree(departmentId: string): Promise<stri
 }
 
 export interface ListFilesStatsParams {
-  role: 'admin' | 'user' | 'dept_ld' | 'dept_admin' | null
+  role: SystemRole | null
   departmentId: string | null
   fileNameKeyword?: string | null
   projectKeyword?: string | null

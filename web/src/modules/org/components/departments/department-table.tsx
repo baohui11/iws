@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { showResultError } from '@/core/client/errors'
 import {
   Table,
   TableHeader,
@@ -8,20 +9,19 @@ import {
   TableColumn,
   TableRow,
   TableCell,
-  Input,
-  Button,
-  Pagination,
+  Switch,
   addToast,
 } from '@heroui/react'
-import { Icon } from '@iconify/react'
-import Link from 'next/link'
 import {
   listDepartments,
-  removeDepartment,
+  updateDepartmentActive,
 } from '@/modules/org/departments/actions'
 import type { DepartmentWithRelations } from '@/modules/org/departments/repo'
-import { useConfirm } from '@/hooks/useConfirm'
-import ConfirmModal from '@/components/common/confirm-modal'
+import {
+  AdminTablePagination,
+  AdminTableSummary,
+  AdminTableToolbar,
+} from '@/components/common/admin-table-controls'
 
 interface DepartmentTableProps {
   initialDepartments: DepartmentWithRelations[]
@@ -38,8 +38,7 @@ export default function DepartmentTable({
   const [pageSize] = useState(20)
   const [keyword, setKeyword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const { confirm, modalProps } = useConfirm()
+  const [savingActiveId, setSavingActiveId] = useState<string | null>(null)
 
   const fetchPage = useCallback(
     async (p: number, kw: string) => {
@@ -54,11 +53,7 @@ export default function DepartmentTable({
         setRows(result.data.departments)
         setTotal(result.data.total)
       } else {
-        addToast({
-          title: '加载失败',
-          description: result.success ? undefined : result.message,
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
       }
     },
     [pageSize]
@@ -79,93 +74,67 @@ export default function DepartmentTable({
     void fetchPage(1, keyword)
   }
 
-  const openDeleteConfirm = (id: string, name: string) => {
-    confirm({
-      title: '删除部门',
-      description: `确定删除部门「${name}」吗？删除后不可恢复。`,
-      onConfirm: async () => {
-        setDeletingId(id)
-        try {
-          const result = await removeDepartment(id)
-          if (result.success) {
-            addToast({ title: '已删除', color: 'success', timeout: 2000 })
-            void fetchPage(page, keyword)
-          } else {
-            addToast({
-              title: '删除失败',
-              description: result.message,
-              color: 'danger',
-            })
-          }
-        } finally {
-          setDeletingId(null)
-        }
-      },
-    })
+  const setDepartmentActive = async (
+    row: DepartmentWithRelations,
+    isActive: boolean
+  ) => {
+    const previous = row.is_active
+    setSavingActiveId(row.id)
+    setRows((current) =>
+      current.map((item) =>
+        item.id === row.id ? { ...item, is_active: isActive } : item
+      )
+    )
+    try {
+      const result = await updateDepartmentActive({
+        id: row.id,
+        is_active: isActive,
+      })
+      if (!result.success) {
+        setRows((current) =>
+          current.map((item) =>
+            item.id === row.id ? { ...item, is_active: previous } : item
+          )
+        )
+        showResultError(result, '保存失败')
+        return
+      }
+      addToast({
+        title: isActive ? '部门已激活' : '部门已停用',
+        color: 'success',
+        timeout: 1600,
+      })
+    } finally {
+      setSavingActiveId(null)
+    }
   }
 
   const totalPages = Math.ceil(total / pageSize)
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <Input
-          placeholder="搜索名称或编码..."
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          startContent={
-            <Icon icon="lucide:search" className="text-default-400 size-4" aria-hidden />
-          }
-          className="w-64"
-          size="sm"
-        />
-        <Button
-          color="primary"
-          size="sm"
-          onPress={handleSearch}
-          isLoading={isLoading}
-          startContent={
-            !isLoading && <Icon icon="lucide:search" className="size-4" aria-hidden />
-          }
-        >
-          搜索
-        </Button>
-        <div className="flex-1" />
-        <Button
-          as={Link}
-          href="/admin/departments/new"
-          color="primary"
-          size="sm"
-          startContent={<Icon icon="lucide:plus" className="size-4" aria-hidden />}
-        >
-          添加部门
-        </Button>
-      </div>
+      <AdminTableToolbar
+        keyword={keyword}
+        onKeywordChange={setKeyword}
+        onSearch={handleSearch}
+        searchPlaceholder="搜索名称或编码..."
+        isLoading={isLoading}
+      />
 
       <Table
         aria-label="部门列表"
+        classNames={{ wrapper: 'overflow-x-auto' }}
         bottomContent={
-          totalPages > 1 && (
-            <div className="flex justify-center">
-              <Pagination
-                page={page}
-                total={totalPages}
-                onChange={setPage}
-                showControls
-                size="sm"
-              />
-            </div>
-          )
+          <AdminTablePagination page={page} totalPages={totalPages} onChange={setPage} />
         }
       >
         <TableHeader>
           <TableColumn>编码</TableColumn>
           <TableColumn>名称</TableColumn>
           <TableColumn>上级</TableColumn>
-          <TableColumn>部门 LD（角色）</TableColumn>
+          <TableColumn>部门 LD（OA）</TableColumn>
           <TableColumn>层级</TableColumn>
-          <TableColumn>操作</TableColumn>
+          <TableColumn>激活状态</TableColumn>
         </TableHeader>
         <TableBody
           items={rows}
@@ -181,42 +150,21 @@ export default function DepartmentTable({
               <TableCell>{row.leader_name ?? '—'}</TableCell>
               <TableCell>{row.level ?? '—'}</TableCell>
               <TableCell>
-                <div className="flex items-center gap-2">
-                  <Button
-                    as={Link}
-                    href={`/admin/departments/${row.id}`}
-                    size="sm"
-                    variant="light"
-                    isIconOnly
-                  >
-                    <Icon
-                      icon="lucide:square-pen"
-                      className="text-default-600 size-[18px]"
-                      aria-hidden
-                    />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="light"
-                    color="danger"
-                    isIconOnly
-                    isDisabled={deletingId === row.id}
-                    onPress={() => openDeleteConfirm(row.id, row.name)}
-                  >
-                    <Icon icon="lucide:trash-2" className="size-[18px]" aria-hidden />
-                  </Button>
-                </div>
+                <Switch
+                  size="sm"
+                  isSelected={row.is_active}
+                  isDisabled={savingActiveId === row.id}
+                  onValueChange={(value) => void setDepartmentActive(row, value)}
+                >
+                  {row.is_active ? '已激活' : '未激活'}
+                </Switch>
               </TableCell>
             </TableRow>
           )}
         </TableBody>
       </Table>
 
-      <div className="text-default-400 text-sm">
-        共 {total} 条{totalPages > 1 && `，第 ${page} / ${totalPages} 页`}
-      </div>
-
-      <ConfirmModal {...modalProps} confirmText="删除" isLoading={deletingId !== null} />
+      <AdminTableSummary total={total} page={page} totalPages={totalPages} unit="条" />
     </div>
   )
 }

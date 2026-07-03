@@ -2,27 +2,44 @@
 
 import { usePathname } from 'next/navigation'
 import { Link, cn } from '@heroui/react'
+import type { SystemRole } from '@/core/auth/current-user'
 
 export const adminNavItems = [
+  {
+    label: '部门管理',
+    href: '/admin/departments',
+    match: (p: string) => p.startsWith('/admin/departments'),
+    adminOnly: true,
+  },
+  {
+    label: '数据权限',
+    href: '/admin/data-scopes',
+    match: (p: string) => p.startsWith('/admin/data-scopes'),
+    adminOnly: true,
+  },
   {
     label: '用户管理',
     href: '/admin/users',
     match: (p: string) => p.startsWith('/admin/users'),
   },
   {
-    label: '部门管理',
-    href: '/admin/departments',
-    match: (p: string) => p.startsWith('/admin/departments'),
-  },
-  {
     label: '项目管理',
     href: '/admin/projects',
     match: (p: string) => p.startsWith('/admin/projects'),
   },
+  {
+    label: 'OA 同步',
+    href: '/admin/oa-sync',
+    match: (p: string) => p.startsWith('/admin/oa-sync'),
+    adminOnly: true,
+  },
 ] as const
 
-export function AdminSidebar() {
+export function AdminSidebar({ role }: { role: SystemRole | null }) {
   const pathname = usePathname()
+  const items = adminNavItems.filter(
+    (item) => !('adminOnly' in item) || role === 'admin'
+  )
 
   return (
     <aside
@@ -36,7 +53,7 @@ export function AdminSidebar() {
           系统管理
         </p>
         <nav className="flex flex-row gap-1 overflow-x-auto pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
-          {adminNavItems.map((item) => {
+          {items.map((item) => {
             const active = item.match(pathname)
             return (
               <Link

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { showResultError } from '@/core/client/errors'
 import {
   Button,
   Checkbox,
@@ -14,7 +15,6 @@ import {
   TableColumn,
   TableHeader,
   TableRow,
-  addToast,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import NextLink from 'next/link'
@@ -149,11 +149,7 @@ export default function ProjectFilesTab({ projectId }: ProjectFilesTabProps) {
       if (cancelled) return
       setLoading(false)
       if (!result.success) {
-        addToast({
-          title: '加载失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
         return
       }
       setRows(result.data.rows)
@@ -175,11 +171,7 @@ export default function ProjectFilesTab({ projectId }: ProjectFilesTabProps) {
     )
     setLoadingMore(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message,
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
       return
     }
     const page = result.data

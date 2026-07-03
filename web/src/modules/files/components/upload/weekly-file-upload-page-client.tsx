@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
+import { showResultError } from '@/core/client/errors'
 import {
   Button,
   Select,
@@ -9,7 +10,6 @@ import {
   Spinner,
   Tab,
   Tabs,
-  addToast,
 } from '@heroui/react'
 import { loadFileUploadOptions } from '@/modules/files/upload/actions'
 import type {
@@ -53,17 +53,9 @@ export default function WeeklyFileUploadPageClient({
         setOptions(result.data)
       } else if (!keepPrevious) {
         setOptions(null)
-        addToast({
-          title: '加载失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
       } else {
-        addToast({
-          title: '刷新失败',
-          description: result.message,
-          color: 'danger',
-        })
+        showResultError(result, '刷新失败')
       }
     },
     []

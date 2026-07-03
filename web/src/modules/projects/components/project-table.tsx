@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { showResultError } from '@/core/client/errors'
 import {
   Table,
   TableHeader,
@@ -8,42 +9,55 @@ import {
   TableColumn,
   TableRow,
   TableCell,
-  Input,
   Button,
-  Pagination,
   Chip,
-  addToast,
   Dropdown,
   DropdownTrigger,
   DropdownMenu,
   DropdownItem,
+  Select,
+  SelectItem,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import Link from 'next/link'
-import { listProjects, removeProject } from '@/modules/projects/actions'
+import { exportProjectsCsv, listProjects } from '@/modules/projects/actions'
 import type { ProjectListItem } from '@/modules/projects/types'
 import type { DepartmentNode } from '@/modules/org/departments/repo'
 import DepartmentTreeSelect from '@/modules/org/components/department-tree-select'
-import { useConfirm } from '@/hooks/useConfirm'
-import ConfirmModal from '@/components/common/confirm-modal'
 import {
   flattenDepartmentTree,
   formatDepartmentPathLabel,
 } from '@/modules/org/departments/display'
 import {
+  PROJECT_STATUS_VALUES,
   PROJECT_STATUS_LABEL,
   type ProjectStatusValue,
 } from '@/constants/project-status'
+import {
+  PROJECT_STAGE_LABEL,
+  PROJECT_STAGE_VALUES,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
+import {
+  AdminTablePagination,
+  AdminTableSummary,
+  AdminTableToolbar,
+} from '@/components/common/admin-table-controls'
 
 const STATUS_COLOR: Record<
   string,
   'success' | 'warning' | 'primary' | 'default' | 'danger'
 > = {
-  active: 'success',
-  preparing: 'warning',
-  completed: 'primary',
-  archived: 'default',
-  suspended: 'danger',
+  进行中: 'success',
+  预结项: 'warning',
+  已结项: 'primary',
+  终止: 'danger',
+  已关闭: 'default',
+}
+
+const STAGE_COLOR: Record<string, 'primary' | 'warning' | 'default'> = {
+  实施阶段: 'primary',
+  销售阶段: 'warning',
 }
 
 interface ProjectTableProps {
@@ -63,9 +77,10 @@ export default function ProjectTable({
   const [pageSize] = useState(20)
   const [keyword, setKeyword] = useState('')
   const [departmentId, setDepartmentId] = useState('')
+  const [projectStage, setProjectStage] = useState('')
+  const [projectStatus, setProjectStatus] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const { confirm, modalProps } = useConfirm()
+  const [isExporting, setIsExporting] = useState(false)
 
   const flatDepartments = useMemo(
     () => flattenDepartmentTree(departments),
@@ -73,24 +88,28 @@ export default function ProjectTable({
   )
 
   const fetchPage = useCallback(
-    async (p: number, kw: string, dept: string) => {
+    async (
+      p: number,
+      kw: string,
+      dept: string,
+      stage: string,
+      status: string
+    ) => {
       setIsLoading(true)
       const result = await listProjects({
         page: p,
         pageSize,
         keyword: kw.trim() || undefined,
         department_id: dept.trim() || undefined,
+        project_stage: stage.trim() ? (stage as ProjectStageValue) : undefined,
+        project_status: status.trim() ? (status as ProjectStatusValue) : undefined,
       })
       setIsLoading(false)
       if (result.success && result.data) {
         setRows(result.data.projects)
         setTotal(result.data.total)
       } else {
-        addToast({
-          title: '加载失败',
-          description: result.success ? undefined : result.message,
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
       }
     },
     [pageSize]
@@ -102,131 +121,163 @@ export default function ProjectTable({
       skipFirst.current = false
       return
     }
-    void fetchPage(page, keyword, departmentId)
+    void fetchPage(page, keyword, departmentId, projectStage, projectStatus)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, fetchPage, departmentId])
+  }, [page, pageSize, fetchPage, departmentId, projectStage, projectStatus])
 
   const handleSearch = () => {
     setPage(1)
-    void fetchPage(1, keyword, departmentId)
+    void fetchPage(1, keyword, departmentId, projectStage, projectStatus)
   }
 
-  const openDeleteConfirm = (id: string, name: string) => {
-    confirm({
-      title: '删除项目',
-      description: `确定删除项目「${name}」吗？将同时移除成员与成果清单关联，且不可恢复。`,
-      onConfirm: async () => {
-        setDeletingId(id)
-        try {
-          const result = await removeProject(id)
-          if (result.success) {
-            addToast({ title: '已删除', color: 'success', timeout: 2000 })
-            void fetchPage(page, keyword, departmentId)
-          } else {
-            addToast({
-              title: '删除失败',
-              description: result.message,
-              color: 'danger',
-            })
-          }
-        } finally {
-          setDeletingId(null)
-        }
-      },
+  const downloadCsv = async () => {
+    setIsExporting(true)
+    const result = await exportProjectsCsv({
+      keyword: keyword.trim() || undefined,
+      department_id: departmentId.trim() || undefined,
+      project_stage: projectStage.trim() ? (projectStage as ProjectStageValue) : undefined,
+      project_status: projectStatus.trim() ? (projectStatus as ProjectStatusValue) : undefined,
     })
+    setIsExporting(false)
+    if (!result.success) {
+      showResultError(result, '导出失败')
+      return
+    }
+    const blob = new Blob([result.data.csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = result.data.filename
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const totalPages = Math.ceil(total / pageSize)
 
   return (
     <div className="space-y-4">
-      <ConfirmModal {...modalProps} />
-
-      <div className="flex flex-wrap items-center gap-4">
-        <Input
-          placeholder="编号、名称、客户、合同号"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          startContent={
-            <Icon icon="lucide:search" className="text-default-400 size-4" aria-hidden />
-          }
-          className="w-64"
-          size="sm"
-        />
-
-        <DepartmentTreeSelect
-          departments={departments}
-          value={departmentId}
-          onChange={(id) => {
-            setDepartmentId(id)
-            setPage(1)
-          }}
-          placeholder="全部部门"
-          emptyOptionLabel="全部部门"
-          size="sm"
-          variant="bordered"
-          className="max-w-xs min-w-[220px]"
-        />
-
-        <Button
-          color="primary"
-          size="sm"
-          onPress={handleSearch}
-          isLoading={isLoading}
-          startContent={
-            !isLoading && <Icon icon="lucide:search" className="size-4" aria-hidden />
-          }
-        >
-          搜索
-        </Button>
-
-        <div className="flex-1" />
-
-        <Button
-          as={Link}
-          href="/admin/projects/new"
-          color="primary"
-          size="sm"
-          startContent={<Icon icon="lucide:folder-plus" className="size-4" aria-hidden />}
-        >
-          新建项目
-        </Button>
-
-        <Dropdown>
-          <DropdownTrigger>
-            <Button
-              color="secondary"
-              variant="flat"
+      <AdminTableToolbar
+        keyword={keyword}
+        onKeywordChange={setKeyword}
+        onSearch={handleSearch}
+        searchPlaceholder="编号、名称、合同号"
+        isLoading={isLoading}
+        filters={
+          <>
+            <DepartmentTreeSelect
+              departments={departments}
+              value={departmentId}
+              onChange={(id) => {
+                setDepartmentId(id)
+                setPage(1)
+              }}
+              placeholder="全部部门"
+              emptyOptionLabel="全部部门"
               size="sm"
-              startContent={<Icon icon="lucide:file-up" className="size-4" aria-hidden />}
+              variant="bordered"
+              className="w-[260px]"
+            />
+            <Select
+              aria-label="项目阶段筛选"
+              placeholder="全部阶段"
+              selectedKeys={projectStage ? new Set([projectStage]) : new Set(['__all__'])}
+              onSelectionChange={(keys) => {
+                if (keys === 'all') return
+                const next = String(Array.from(keys)[0] ?? '')
+                setProjectStage(next === '__all__' ? '' : next)
+                setPage(1)
+              }}
+              size="sm"
+              variant="bordered"
+              className="w-[140px]"
             >
-              批量导入
+              {[
+                { key: '__all__', label: '全部阶段' },
+                ...PROJECT_STAGE_VALUES.map((value) => ({
+                  key: value,
+                  label: PROJECT_STAGE_LABEL[value],
+                })),
+              ].map((option) => (
+                <SelectItem key={option.key}>{option.label}</SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="项目状态筛选"
+              placeholder="全部状态"
+              selectedKeys={projectStatus ? new Set([projectStatus]) : new Set(['__all__'])}
+              onSelectionChange={(keys) => {
+                if (keys === 'all') return
+                const next = String(Array.from(keys)[0] ?? '')
+                setProjectStatus(next === '__all__' ? '' : next)
+                setPage(1)
+              }}
+              size="sm"
+              variant="bordered"
+              className="w-[140px]"
+            >
+              {[
+                { key: '__all__', label: '全部状态' },
+                ...PROJECT_STATUS_VALUES.map((value) => ({
+                  key: value,
+                  label: PROJECT_STATUS_LABEL[value],
+                })),
+              ].map((option) => (
+                <SelectItem key={option.key}>{option.label}</SelectItem>
+              ))}
+            </Select>
+          </>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="flat"
+              color="primary"
+              isLoading={isExporting}
+              startContent={
+                !isExporting && <Icon icon="lucide:download" className="size-4" aria-hidden />
+              }
+              onPress={() => void downloadCsv()}
+            >
+              导出 CSV
             </Button>
-          </DropdownTrigger>
-          <DropdownMenu aria-label="批量导入">
-            <DropdownItem key="main" as={Link} href="/admin/projects/import">
-              项目主表
-            </DropdownItem>
-            <DropdownItem key="members" as={Link} href="/admin/projects/import/members">
-              项目成员
-            </DropdownItem>
-            <DropdownItem
-              key="deliverables"
-              as={Link}
-              href="/admin/projects/import/deliverables"
-            >
-              成果清单
-            </DropdownItem>
-          </DropdownMenu>
-        </Dropdown>
-      </div>
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  color="secondary"
+                  variant="flat"
+                  size="sm"
+                  startContent={<Icon icon="lucide:file-up" className="size-4" aria-hidden />}
+                >
+                  批量导入
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu aria-label="批量导入">
+                <DropdownItem
+                  key="deliverables"
+                  as={Link}
+                  href="/admin/projects/import/deliverables"
+                >
+                  成果清单
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+          </div>
+        }
+      />
 
-      <Table aria-label="项目列表" classNames={{ wrapper: 'overflow-x-auto' }}>
+      <Table
+        aria-label="项目列表"
+        classNames={{ wrapper: 'overflow-x-auto' }}
+        bottomContent={
+          <AdminTablePagination page={page} totalPages={totalPages} onChange={setPage} />
+        }
+      >
         <TableHeader>
           <TableColumn>项目编号</TableColumn>
           <TableColumn>项目名称</TableColumn>
           <TableColumn>部门</TableColumn>
+          <TableColumn>项目阶段</TableColumn>
           <TableColumn>状态</TableColumn>
           <TableColumn align="end">操作</TableColumn>
         </TableHeader>
@@ -237,11 +288,25 @@ export default function ProjectTable({
                 <span className="font-mono text-sm">{p.project_no ?? '—'}</span>
               </TableCell>
               <TableCell>{p.project_name ?? '—'}</TableCell>
-              <TableCell className="max-w-[240px] truncate">
+              <TableCell>
                 {formatDepartmentPathLabel(
                   p.department_id,
                   flatDepartments,
                   p.department_name
+                )}
+              </TableCell>
+              <TableCell>
+                {p.project_stage ? (
+                  <Chip
+                    size="sm"
+                    variant="flat"
+                    color={STAGE_COLOR[p.project_stage] ?? 'default'}
+                  >
+                    {PROJECT_STAGE_LABEL[p.project_stage as ProjectStageValue] ??
+                      p.project_stage}
+                  </Chip>
+                ) : (
+                  '—'
                 )}
               </TableCell>
               <TableCell>
@@ -268,22 +333,10 @@ export default function ProjectTable({
                     isIconOnly
                   >
                     <Icon
-                      icon="lucide:square-pen"
+                      icon="lucide:eye"
                       className="text-default-600 size-[18px]"
                       aria-hidden
                     />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="light"
-                    color="danger"
-                    isIconOnly
-                    isLoading={deletingId === p.id}
-                    onPress={() =>
-                      openDeleteConfirm(p.id, p.project_name ?? p.project_no ?? '')
-                    }
-                  >
-                    <Icon icon="lucide:trash-2" className="size-[18px]" aria-hidden />
                   </Button>
                 </div>
               </TableCell>
@@ -292,11 +345,7 @@ export default function ProjectTable({
         </TableBody>
       </Table>
 
-      {totalPages > 1 && (
-        <div className="flex justify-center">
-          <Pagination total={totalPages} page={page} onChange={setPage} showControls size="sm" />
-        </div>
-      )}
+      <AdminTableSummary total={total} page={page} totalPages={totalPages} />
     </div>
   )
 }

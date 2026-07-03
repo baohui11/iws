@@ -15,7 +15,9 @@ export type { SystemRole }
 const ROLE_RANK: Record<SystemRole, number> = {
   user: 0,
   dept_ld: 1,
+  bp: 1,
   dept_admin: 2,
+  company_ld: 2,
   admin: 3,
 }
 

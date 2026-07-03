@@ -17,12 +17,12 @@ import {
   Select,
   SelectItem,
   Tooltip,
-  addToast,
   cn,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { WEEKLY_PROJECTS_PAGE_SIZE } from '@/constants/weekly-projects-space'
 import { loadMyWeeklyProjectsAction } from '@/modules/weekly/projects/actions'
+import { showResultError } from '@/core/client/errors'
 import type { DepartmentNode } from '@/modules/org/departments/repo'
 import {
   PROJECT_STATUS_LABEL,
@@ -38,7 +38,6 @@ import {
   parseWeeklyProjectsSearchParams,
   type WeeklyProjectsUrlState,
 } from '@/modules/weekly/lib/weekly-projects-url'
-import { PROJECT_ROLE_LABEL } from '@/constants/project-roles'
 import type { WeeklyProjectListItem } from '@/modules/projects/types'
 
 /** 与 admin DepartmentTreeSelect / 原 WeeklyDepartmentSelect 一致：根 + 一层子部门 */
@@ -68,11 +67,11 @@ const STATUS_COLOR: Record<
   string,
   'success' | 'warning' | 'primary' | 'default' | 'danger'
 > = {
-  active: 'success',
-  preparing: 'warning',
-  completed: 'primary',
-  archived: 'default',
-  suspended: 'danger',
+  进行中: 'success',
+  预结项: 'warning',
+  已结项: 'primary',
+  终止: 'danger',
+  已关闭: 'default',
 }
 
 interface WeeklyProjectsListProps {
@@ -155,9 +154,7 @@ function WeeklyProjectCard({
             color="primary"
             className="h-6 shrink-0 px-2 text-xs"
           >
-            {item.my_project_role
-              ? PROJECT_ROLE_LABEL[item.my_project_role]
-              : '成员'}
+            {item.my_project_role ?? '成员'}
           </Chip>
         ) : null}
       </div>
@@ -215,11 +212,7 @@ export default function WeeklyProjectsList({
       })
       setIsLoading(false)
       if (!result.success) {
-        addToast({
-          title: '加载失败',
-          description: result.message ?? '获取项目列表失败',
-          color: 'danger',
-        })
+        showResultError(result, '加载失败')
       } else if (result.data) {
         setRows(result.data.projects)
         setTotal(result.data.total)
@@ -244,11 +237,7 @@ export default function WeeklyProjectsList({
     loadingMoreRef.current = false
     setLoadingMore(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message ?? '获取项目列表失败',
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
     } else if (result.data) {
       setRows((prev) => {
         const seen = new Set(prev.map((r) => r.id))
@@ -377,7 +366,7 @@ export default function WeeklyProjectsList({
     <div className="space-y-6">
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <Input
-          placeholder="编号、名称、客户、合同号"
+          placeholder="编号、名称、合同号"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -638,7 +627,7 @@ export default function WeeklyProjectsList({
                   {item.is_participating ? (
                     <Chip size="sm" variant="flat" color="primary">
                       {item.my_project_role
-                        ? PROJECT_ROLE_LABEL[item.my_project_role]
+                        ? item.my_project_role
                         : '成员'}
                     </Chip>
                   ) : (

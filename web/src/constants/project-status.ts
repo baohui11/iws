@@ -1,20 +1,20 @@
 /** 与数据库 enum project_status 一致。 */
 export const PROJECT_STATUS_VALUES = [
-  'active',
-  'preparing',
-  'completed',
-  'archived',
-  'suspended',
+  '进行中',
+  '预结项',
+  '已结项',
+  '终止',
+  '已关闭',
 ] as const
 
 export type ProjectStatusValue = (typeof PROJECT_STATUS_VALUES)[number]
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatusValue, string> = {
-  active: '进行中',
-  preparing: '筹备',
-  completed: '已完成',
-  archived: '已归档',
-  suspended: '已暂停',
+  进行中: '进行中',
+  预结项: '预结项',
+  已结项: '已结项',
+  终止: '终止',
+  已关闭: '已关闭',
 }
 
 export function parseProjectStatus(

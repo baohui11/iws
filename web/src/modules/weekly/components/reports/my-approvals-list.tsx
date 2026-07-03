@@ -8,10 +8,10 @@ import {
   Chip,
   Radio,
   RadioGroup,
-  addToast,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { loadPmApprovalListAction } from '@/modules/weekly/reports/actions'
+import { showResultError } from '@/core/client/errors'
 import WeekMultiSelect from '@/modules/weekly/components/filters/week-multi-select'
 import ProjectMultiSelect from '@/modules/weekly/components/filters/project-multi-select'
 import { WEEKLY_REPORTS_PAGE_SIZE } from '@/constants/weekly-reports-list'
@@ -96,11 +96,7 @@ export default function MyApprovalsList({
       })
       setIsLoading(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message ?? '获取审批列表失败',
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
     } else if (result.data) {
       setRows(result.data.rows)
       setTotal(result.data.total)
@@ -124,11 +120,7 @@ export default function MyApprovalsList({
     loadingMoreRef.current = false
     setLoadingMore(false)
     if (!result.success) {
-      addToast({
-        title: '加载失败',
-        description: result.message ?? '获取审批列表失败',
-        color: 'danger',
-      })
+      showResultError(result, '加载失败')
     } else if (result.data) {
       setRows((prev) => {
         const seen = new Set(prev.map((r) => r.id))

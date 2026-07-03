@@ -1,6 +1,6 @@
 'use client'
 
-import { Avatar, Button, Divider, Textarea, addToast } from '@heroui/react'
+import { Avatar, Button, Divider, Textarea } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { useCallback, useState } from 'react'
 import {
@@ -10,6 +10,7 @@ import {
   toggleFileRecommendAction,
 } from '@/modules/files/social/actions'
 import { formatUploadDateShort } from '@/modules/files/lib/format-upload-date'
+import { showResultError } from '@/core/client/errors'
 import type {
   FilePreviewCommentRow,
   FilePreviewLoadResult,
@@ -94,11 +95,7 @@ export default function FilePreviewInteractionPanel({
           : await toggleFileRecommendAction(fileId)
       setPending(null)
       if (!res.success) {
-        addToast({
-          title: '操作失败',
-          description: res.message ?? '请稍后重试',
-          color: 'danger',
-        })
+        showResultError(res, '操作失败')
         return
       }
       onSocialUpdate({
@@ -116,11 +113,7 @@ export default function FilePreviewInteractionPanel({
     const res = await addFileCommentAction(fileId, text, null)
     setRootSubmitting(false)
     if (!res.success) {
-      addToast({
-        title: '发送失败',
-        description: res.message ?? '请稍后重试',
-        color: 'danger',
-      })
+      showResultError(res, '发送失败')
       return
     }
     onTopLevelCommentAdded(res.data)
@@ -134,11 +127,7 @@ export default function FilePreviewInteractionPanel({
     const res = await addFileCommentAction(fileId, text, replyParentId)
     setReplySubmitting(false)
     if (!res.success) {
-      addToast({
-        title: '发送失败',
-        description: res.message ?? '请稍后重试',
-        color: 'danger',
-      })
+      showResultError(res, '发送失败')
       return
     }
     const row = res.data
@@ -167,11 +156,7 @@ export default function FilePreviewInteractionPanel({
         const res = await loadFileCommentRepliesAction(fileId, rootId)
         setThreadLoadingId(null)
         if (!res.success) {
-          addToast({
-            title: '加载失败',
-            description: res.message ?? '请稍后重试',
-            color: 'danger',
-          })
+          showResultError(res, '加载失败')
           return
         }
         setThreadByRoot((prev) => ({ ...prev, [rootId]: res.data }))

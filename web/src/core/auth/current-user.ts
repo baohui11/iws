@@ -6,9 +6,10 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import { departments, users } from '@/core/db/schema'
 import { AuthError } from '@/core/errors'
+import type { SystemRoleValue } from '@/constants/system-roles'
 import { getSessionUserId } from './session'
 
-export type SystemRole = 'user' | 'dept_ld' | 'dept_admin' | 'admin'
+export type SystemRole = SystemRoleValue
 
 /** 当前登录用户（对应 public.users 关键字段，命名采用 camelCase） */
 export interface CurrentUser {
@@ -47,7 +48,9 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     })
     .from(users)
     .leftJoin(departments, eq(users.departmentId, departments.id))
-    .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+    .where(
+      and(eq(users.id, userId), eq(users.isActive, true), isNull(users.deletedAt))
+    )
     .limit(1)
 
   const row = rows[0]
