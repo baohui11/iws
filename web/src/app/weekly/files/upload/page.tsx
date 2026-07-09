@@ -3,6 +3,7 @@ import WeeklyFileUploadPageClient from '@/modules/files/components/upload/weekly
 import { requireUser } from '@/core/auth'
 import { formatMaxProjectFileLabel } from '@/core/storage/constants'
 import { listMemberActiveProjectsForUpload } from '@/modules/files/upload/repo'
+import { parseProjectStage } from '@/constants/project-stage'
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -15,8 +16,12 @@ export default async function WeeklyProjectFileUploadPage({
   const sp = await searchParams
   const projectId =
     typeof sp.projectId === 'string' ? sp.projectId : undefined
+  const projectStage =
+    typeof sp.projectStage === 'string' ? parseProjectStage(sp.projectStage) : null
   const returnTo =
     typeof sp.returnTo === 'string' ? sp.returnTo : undefined
+  const linkTargetKey =
+    typeof sp.linkTargetKey === 'string' ? sp.linkTargetKey : undefined
 
   const projects = await listMemberActiveProjectsForUpload(user.id)
 
@@ -28,7 +33,9 @@ export default async function WeeklyProjectFileUploadPage({
           initialProjects={projects}
           maxFileLabel={formatMaxProjectFileLabel()}
           initialProjectId={projectId}
+          initialProjectStage={projectStage ?? undefined}
           returnToHref={returnTo}
+          linkTargetKey={linkTargetKey}
         />
       </div>
     </div>

@@ -19,7 +19,6 @@ export interface SearchableMultiSelectItem {
 }
 
 interface SearchableMultiSelectProps {
-  /** 与 HeroUI Select 一致：小号标签在控件上方 */
   label?: string
   items: SearchableMultiSelectItem[]
   selectedKeys: Set<string>
@@ -51,20 +50,13 @@ export default function SearchableMultiSelect({
     return items.filter((it) => it.searchText.toLowerCase().includes(q))
   }, [items, query])
 
-  const summary =
-    selectedKeys.size === 0
-      ? allLabel
-      : `已选 ${selectedKeys.size} 项`
+  const summary = selectedKeys.size === 0 ? allLabel : `已选 ${selectedKeys.size} 项`
 
   const setKey = (key: string, checked: boolean) => {
     const next = new Set(selectedKeys)
     if (checked) next.add(key)
     else next.delete(key)
     onSelectionChange(next)
-  }
-
-  const clear = () => {
-    onSelectionChange(new Set())
   }
 
   return (
@@ -108,7 +100,7 @@ export default function SearchableMultiSelect({
               classNames={{ inputWrapper: 'h-9' }}
             />
             <div className="flex justify-end">
-              <Button size="sm" variant="light" onPress={clear}>
+              <Button size="sm" variant="light" onPress={() => onSelectionChange(new Set())}>
                 清空选择
               </Button>
             </div>
@@ -124,7 +116,7 @@ export default function SearchableMultiSelect({
                       key={it.key}
                       size="sm"
                       isSelected={selectedKeys.has(it.key)}
-                      onValueChange={(v) => setKey(it.key, v)}
+                      onValueChange={(checked) => setKey(it.key, checked)}
                       classNames={{ label: 'w-full' }}
                     >
                       <span className="text-sm">{it.children}</span>

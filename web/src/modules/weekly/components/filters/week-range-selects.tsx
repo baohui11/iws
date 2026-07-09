@@ -1,16 +1,9 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Select, SelectItem } from '@heroui/react'
-import type { Selection } from '@heroui/react'
 import type { WeekOption } from '@/modules/weekly/types'
 import { compareWeekCode } from '@/modules/weekly/lib/iso-week'
-
-function selectionToOneKey(s: Selection): string {
-  if (s === 'all') return ''
-  const k = Array.from(s)[0]
-  return k != null ? String(k) : ''
-}
+import WeekSearchSelect from '@/components/common/week-search-select'
 
 interface WeekRangeSelectsProps {
   weekOptions: WeekOption[]
@@ -20,9 +13,10 @@ interface WeekRangeSelectsProps {
   isDisabled?: boolean
   /** @deprecated 保留兼容；现用内部 flex 包裹双周 +「至」 */
   wrapperClassName?: string
+  selectClassName?: string
 }
 
-const selectClass = 'w-[10rem] min-w-[10rem] max-w-[10rem] shrink-0'
+const defaultSelectClass = 'w-[12rem] min-w-[12rem] max-w-[12rem] shrink-0'
 
 export default function WeekRangeSelects({
   weekOptions,
@@ -31,7 +25,9 @@ export default function WeekRangeSelects({
   onChange,
   isDisabled,
   wrapperClassName,
+  selectClassName,
 }: WeekRangeSelectsProps) {
+  const selectClass = selectClassName ?? defaultSelectClass
   /** 本周起往前：最新周在前（降序） */
   const sortedDesc = useMemo(
     () =>
@@ -49,8 +45,7 @@ export default function WeekRangeSelects({
     )
   }, [sortedDesc, weekFrom])
 
-  const setFrom = (keys: Selection) => {
-    const nextFrom = selectionToOneKey(keys)
+  const setFrom = (nextFrom: string) => {
     if (!nextFrom) return
     if (compareWeekCode(nextFrom, weekTo) > 0) {
       onChange({ weekFrom: nextFrom, weekTo: nextFrom })
@@ -59,8 +54,7 @@ export default function WeekRangeSelects({
     }
   }
 
-  const setTo = (keys: Selection) => {
-    const nextTo = selectionToOneKey(keys)
+  const setTo = (nextTo: string) => {
     if (!nextTo) return
     if (compareWeekCode(weekFrom, nextTo) > 0) {
       onChange({ weekFrom: nextTo, weekTo: nextTo })
@@ -71,54 +65,32 @@ export default function WeekRangeSelects({
 
   const body = (
     <>
-      <Select
-        size="md"
-        variant="bordered"
+      <WeekSearchSelect
+        weekOptions={sortedDesc}
+        value={weekFrom}
+        onChange={setFrom}
+        label=""
+        placeholder="起始周"
+        size="sm"
         className={selectClass}
-        selectedKeys={weekFrom ? new Set([weekFrom]) : new Set()}
-        onSelectionChange={setFrom}
         isDisabled={isDisabled}
-        disallowEmptySelection
-        aria-label="起始周"
-      >
-        {sortedDesc.map((w) => (
-          <SelectItem key={w.week_code} textValue={w.title_zh}>
-            <div className="flex flex-col gap-0.5">
-              <span>{w.title_zh}</span>
-              {w.range_line ? (
-                <span className="text-xs text-default-400">{w.range_line}</span>
-              ) : null}
-            </div>
-          </SelectItem>
-        ))}
-      </Select>
+      />
       <span
         className="shrink-0 px-0.5 text-sm text-default-500 select-none"
         aria-hidden
       >
         至
       </span>
-      <Select
-        size="md"
-        variant="bordered"
+      <WeekSearchSelect
+        weekOptions={endOptionsDesc}
+        value={weekTo}
+        onChange={setTo}
+        label=""
+        placeholder="截止周"
+        size="sm"
         className={selectClass}
-        selectedKeys={weekTo ? new Set([weekTo]) : new Set()}
-        onSelectionChange={setTo}
         isDisabled={isDisabled || endOptionsDesc.length === 0}
-        disallowEmptySelection
-        aria-label="截止周"
-      >
-        {endOptionsDesc.map((w) => (
-          <SelectItem key={w.week_code} textValue={w.title_zh}>
-            <div className="flex flex-col gap-0.5">
-              <span>{w.title_zh}</span>
-              {w.range_line ? (
-                <span className="text-xs text-default-400">{w.range_line}</span>
-              ) : null}
-            </div>
-          </SelectItem>
-        ))}
-      </Select>
+      />
     </>
   )
 

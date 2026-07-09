@@ -1,9 +1,9 @@
-/** 我的项目列表：与地址栏 ?view=&q=&dept=&mine= 同步（列表位置用滚动分页，不写 URL） */
+/** 我的项目列表：与地址栏 ?q=&dept=&mine= 同步（列表位置用滚动分页，不写 URL） */
 
 export type WeeklyProjectsUrlState = {
-  view: 'cards' | 'table'
   q: string
   dept: string
+  stage: string
   /** 项目状态 enum，空字符串表示全部 */
   status: string
   mine: boolean
@@ -20,12 +20,10 @@ export function parseWeeklyProjectsSearchParamsFromRecord(
 ): WeeklyProjectsUrlState {
   const q = firstString(sp.q)
   const dept = firstString(sp.dept)
-  const mine = firstString(sp.mine) === '1'
+  const stage = firstString(sp.stage)
+  const mine = firstString(sp.mine) !== '0'
   const status = firstString(sp.status)
-  const viewRaw = firstString(sp.view)
-  const view: WeeklyProjectsUrlState['view'] =
-    viewRaw === 'table' ? 'table' : 'cards'
-  return { view, q, dept, status, mine }
+  return { q, dept, stage, status, mine }
 }
 
 /** 客户端：从 URLSearchParams 解析 */
@@ -37,16 +35,16 @@ export function parseWeeklyProjectsSearchParams(
   )
 }
 
-/** 构建查询串（省略默认值：卡片、无筛选） */
+/** 构建查询串（省略默认值：无筛选、我参与） */
 export function buildWeeklyProjectsSearchParams(
   state: WeeklyProjectsUrlState
 ): URLSearchParams {
   const p = new URLSearchParams()
-  if (state.view === 'table') p.set('view', 'table')
   if (state.q.trim()) p.set('q', state.q.trim())
   if (state.dept.trim()) p.set('dept', state.dept.trim())
+  if (state.stage.trim()) p.set('stage', state.stage.trim())
   if (state.status.trim()) p.set('status', state.status.trim())
-  if (state.mine) p.set('mine', '1')
+  if (!state.mine) p.set('mine', '0')
   return p
 }
 
@@ -56,7 +54,7 @@ export function buildWeeklyProjectDetailHref(
   listPathname: string,
   listSearchParams: URLSearchParams
 ): string {
-  const base = `/weekly/projects/${projectId}/reports`
+  const base = `/weekly/projects/${projectId}`
   const qs = listSearchParams.toString()
   const listUrl = qs ? `${listPathname}?${qs}` : listPathname
   if (!listUrl.startsWith('/weekly/projects')) {

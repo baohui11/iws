@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   Button,
   Card,
@@ -36,6 +36,8 @@ import {
   WEEKLY_REPORT_STATUS_COLOR,
   WEEKLY_REPORT_STATUS_LABEL,
 } from '@/constants/weekly-report-status'
+import { PROJECT_STAGE_SALES } from '@/constants/project-stage'
+import WeeklyReportFilePickerModal from './weekly-report-file-picker-modal'
 import { isNowAfterWeekDeadline } from '@/modules/weekly/lib/week-deadline'
 import { formatWeekRangeLine, formatWeekTitleZh } from '@/modules/weekly/lib/week-display'
 import { randomClientId } from '@/core/random-client-id'
@@ -148,12 +150,21 @@ function rowSnapshot(row: FillRow): string {
 export interface WeeklyReportFillFormProps {
   initialPayload: WeeklyReportEditorPayload
   returnToHref: string
+  initialLinkedFile: {
+    id: string
+    file_name: string
+    target_key: string
+  } | null
 }
 
 export default function WeeklyReportFillForm({
   initialPayload,
+  returnToHref,
+  initialLinkedFile,
 }: WeeklyReportFillFormProps) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [payload, setPayload] = useState(initialPayload)
   const [workRows, setWorkRows] = useState<FillRow[]>(() =>
     splitRowsFromPayload(initialPayload.items).work
@@ -165,6 +176,8 @@ export default function WeeklyReportFillForm({
   const savingRef = useRef<Set<string>>(new Set())
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerTargetKey, setPickerTargetKey] = useState<string | null>(null)
   /** 开启后提交时不再要求下周计划，服务端会删除已保存的计划项 */
   const [noPlanNextWeek, setNoPlanNextWeek] = useState(false)
   const [selectedTab, setSelectedTab] = useState<'work' | 'plan'>('work')
@@ -181,6 +194,9 @@ export default function WeeklyReportFillForm({
   const project = payload.project
   const reportId = payload.report.id
   const reportStatus = payload.report.status
+  const reportProjectStage = payload.report.project_stage
+  const isSalesStage = reportProjectStage === PROJECT_STAGE_SALES
+  const linkedFileLabel = isSalesStage ? '关联销售文件' : '关联成果文件'
 
   const showOverdueBadge = useMemo(
     () =>
@@ -199,6 +215,7 @@ export default function WeeklyReportFillForm({
     const res = await loadWeeklyReportEditorAction({
       projectId: project.id,
       weekCode: week.week_code,
+      projectStage: payload.report.project_stage,
     })
     if (res.success && res.data) {
       setPayload(res.data)
@@ -212,7 +229,7 @@ export default function WeeklyReportFillForm({
         }
       }
     }
-  }, [project.id, week.week_code])
+  }, [payload.report.project_stage, project.id, week.week_code])
 
   const setRow = useCallback(
     (clientKey: string, patch: Partial<FillRow>, section: 'work' | 'plan') => {
@@ -358,6 +375,51 @@ export default function WeeklyReportFillForm({
     }
   }, [initialPayload.items])
 
+  useEffect(() => {
+    if (!initialLinkedFile) return
+    const targetKey = initialLinkedFile.target_key
+    const timer = window.setTimeout(() => {
+      let saveTargetKey: string | null = null
+      setWorkRows((prev) => {
+        const targetIndex = prev.findIndex(
+          (row) => row.clientKey === targetKey || row.id === targetKey
+        )
+        const fallbackIndex = prev.findIndex((row) => isRowEmpty(row, 'work'))
+        const index = targetIndex >= 0 ? targetIndex : fallbackIndex
+        if (index < 0) return prev
+
+        return prev.map((row, rowIndex) => {
+          if (rowIndex !== index) return row
+          saveTargetKey = row.clientKey
+          if (row.file_ids.includes(initialLinkedFile.id)) return row
+          return {
+            ...row,
+            file_ids: [...row.file_ids, initialLinkedFile.id],
+            files: [
+              ...row.files,
+              {
+                id: initialLinkedFile.id,
+                file_name: initialLinkedFile.file_name,
+              },
+            ],
+          }
+        })
+      })
+      window.setTimeout(() => {
+        if (saveTargetKey) {
+          void saveRowInternal(saveTargetKey, 'work', { silent: true })
+        }
+      }, 0)
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('linkedFileId')
+      params.delete('linkedFileName')
+      params.delete('linkTargetKey')
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [initialLinkedFile, pathname, router, saveRowInternal, searchParams])
+
   const clearAllTimers = useCallback(() => {
     for (const t of debounceTimersRef.current.values()) {
       clearTimeout(t)
@@ -462,7 +524,7 @@ export default function WeeklyReportFillForm({
         showResultError(res, '提交失败')
         return
       }
-      addToast({ title: '已提交审批', color: 'success' })
+      addToast({ title: '已提交', color: 'success' })
       router.push(`/weekly/reports/${reportId}`)
     } finally {
       setSubmitting(false)
@@ -580,11 +642,57 @@ export default function WeeklyReportFillForm({
             }}
           />
 
+          {section === 'work' ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {row.files.length === 0 ? (
+                <span className="text-xs text-default-400">
+                  未{linkedFileLabel}
+                </span>
+              ) : (
+                <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+                  {row.files.map((file) => (
+                    <Button
+                      key={file.id}
+                      as={Link}
+                      href={`/files/${file.id}/preview`}
+                      target="_blank"
+                      rel="noreferrer"
+                      size="sm"
+                      variant="flat"
+                      className="h-7 max-w-full px-2 text-xs"
+                    >
+                      <span className="max-w-[18rem] truncate">
+                        {file.file_name}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <Button
+                size="sm"
+                variant="flat"
+                color="primary"
+                className="h-7 px-2 text-xs"
+                startContent={<Icon icon="lucide:paperclip" className="size-3.5" />}
+                onPress={() => {
+                  setPickerTargetKey(row.clientKey)
+                  setPickerOpen(true)
+                }}
+              >
+                {linkedFileLabel}
+              </Button>
+            </div>
+          ) : null}
+
         </CardBody>
       </Card>
     )
   }
 
+  const pickerRow =
+    pickerTargetKey == null
+      ? null
+      : workRows.find((row) => row.clientKey === pickerTargetKey) ?? null
 
   return (
     <div className="space-y-4 pb-24 sm:pb-8">
@@ -758,10 +866,52 @@ export default function WeeklyReportFillForm({
           isLoading={submitting}
           onPress={() => void handleSubmit()}
         >
-          提交审批
+          提交
         </Button>
       </div>
 
+      <WeeklyReportFilePickerModal
+        isOpen={pickerOpen}
+        onClose={() => {
+          setPickerOpen(false)
+          setPickerTargetKey(null)
+        }}
+        initialSelectedIds={pickerRow?.file_ids ?? []}
+        projectId={project.id}
+        projectStage={reportProjectStage}
+        weekStartDate={week.start_date}
+        returnToHref={returnToHref}
+        linkTargetKey={pickerRow?.id ?? pickerRow?.clientKey ?? ''}
+        onConfirm={(ids, picked) => {
+          const targetKey = pickerTargetKey
+          if (!targetKey) return
+          const pickedById = new Map(
+            picked.map((file) => [
+              file.id,
+              { id: file.id, file_name: file.file_name },
+            ])
+          )
+          setWorkRows((prev) =>
+            prev.map((row) => {
+              if (row.clientKey !== targetKey) return row
+              const currentById = new Map(
+                row.files.map((file) => [file.id, file])
+              )
+              const files = ids.map(
+                (id) =>
+                  pickedById.get(id) ??
+                  currentById.get(id) ?? { id, file_name: '已选文件' }
+              )
+              return { ...row, file_ids: ids, files }
+            })
+          )
+          setPickerOpen(false)
+          setPickerTargetKey(null)
+          window.setTimeout(() => {
+            void saveRowInternal(targetKey, 'work', { silent: true })
+          }, 0)
+        }}
+      />
     </div>
   )
 }

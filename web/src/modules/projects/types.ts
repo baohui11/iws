@@ -52,6 +52,7 @@ export interface ProjectListItem {
 export interface WeeklyProjectListItem extends ProjectListItem {
   is_participating: boolean
   my_project_role: string | null
+  my_project_stages: string[]
 }
 
 export interface ProjectMemberRow {
@@ -62,6 +63,7 @@ export interface ProjectMemberRow {
   is_active: boolean
   user_name: string | null
   user_email: string | null
+  user_department_name: string | null
 }
 
 export interface DeliverableRow {

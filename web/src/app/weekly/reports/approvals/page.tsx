@@ -12,47 +12,32 @@ import {
   isPmOnAnyProject,
 } from '@/modules/weekly/reports/repo'
 import {
-  parseWeeklyApprovalsSearchParams,
-  resolveEffectiveWeekCodes,
+  getDefaultApprovalWeekRange,
+  resolveApprovalWeekCodes,
 } from '@/modules/weekly/lib/weekly-reports-url'
 
-type PageProps = {
-  searchParams: Promise<Record<string, string | string[] | undefined>>
-}
-
-export default async function WeeklyReportApprovalsPage({
-  searchParams,
-}: PageProps) {
+export default async function WeeklyReportApprovalsPage() {
   const user = await requireUser()
   const allowed = await isPmOnAnyProject(user.id)
   if (!allowed) {
     notFound()
   }
 
-  const sp = await searchParams
-  const parsed = parseWeeklyApprovalsSearchParams(sp)
-
   const weekOptions = await getWeekOptionsUpToCurrent(104)
-  const effectiveWeeks = resolveEffectiveWeekCodes(
-    weekOptions,
-    parsed.hasWeeksInUrl,
-    parsed.weeks
-  )
-
-  const urlState = {
-    approval: parsed.approval,
-    weeks: effectiveWeeks,
-    projects: parsed.projects,
-    hasWeeksInUrl: parsed.hasWeeksInUrl,
-  }
+  const defaults = getDefaultApprovalWeekRange(weekOptions)
+  const effectiveWeeks = resolveApprovalWeekCodes(weekOptions, {
+    weekFrom: defaults.weekFrom,
+    weekTo: defaults.weekTo,
+    hasWeekRangeInUrl: true,
+  })
 
   const [pmProjects, approvalPaged] = await Promise.all([
     getPmProjectsForFilter(user.id),
     getPmApprovalList({
       userId: user.id,
-      approvalFilter: parsed.approval,
+      approvalFilter: 'all',
       weekCodes: effectiveWeeks,
-      projectIds: parsed.projects,
+      projectIds: [],
       offset: 0,
       limit: WEEKLY_REPORTS_PAGE_SIZE,
     }),
@@ -70,7 +55,8 @@ export default async function WeeklyReportApprovalsPage({
             pageSize={WEEKLY_REPORTS_PAGE_SIZE}
             weekOptions={weekOptions}
             pmProjects={pmProjects}
-            initialUrlState={urlState}
+            initialWeekFrom={defaults.weekFrom}
+            initialWeekTo={defaults.weekTo}
           />
         </Suspense>
       </div>

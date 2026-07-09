@@ -1,6 +1,6 @@
 'use client'
 
-import { Select, SelectItem } from '@heroui/react'
+import ProjectSearchMultiSelect from '@/modules/projects/components/project-search-multi-select'
 import type { MemberProjectOption } from '@/modules/weekly/types'
 
 interface ProjectHerouiMultiSelectProps {
@@ -19,32 +19,12 @@ export default function ProjectHerouiMultiSelect({
   className,
 }: ProjectHerouiMultiSelectProps) {
   return (
-    <Select
-      placeholder="全部项目"
-      selectionMode="multiple"
-      size="md"
-      variant="bordered"
-      className={`min-w-[160px] max-w-[480px] shrink-0 ${className ?? ''}`}
+    <ProjectSearchMultiSelect
+      projects={projects}
       selectedKeys={selectedKeys}
-      onSelectionChange={(keys) => {
-        if (keys === 'all') {
-          onSelectionChange(new Set())
-          return
-        }
-        onSelectionChange(new Set([...keys].map(String)))
-      }}
-      isDisabled={isDisabled || projects.length === 0}
-      aria-label="项目筛选"
-    >
-      {projects.map((p) => {
-        const label = p.project_name?.trim() || p.project_no || p.id
-        const text = `${label}${p.project_no ? `（${p.project_no}）` : ''}`
-        return (
-          <SelectItem key={p.id} textValue={text}>
-            {text}
-          </SelectItem>
-        )
-      })}
-    </Select>
+      onSelectionChange={onSelectionChange}
+      isDisabled={isDisabled}
+      className={className}
+    />
   )
 }

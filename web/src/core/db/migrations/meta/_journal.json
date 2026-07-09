@@ -99,6 +99,20 @@
       "when": 1783050000000,
       "tag": "0013_user_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783123200000,
+      "tag": "0014_weekly_report_stage_withdraw",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1783296000000,
+      "tag": "0015_file_project_stage_sales_tag",
+      "breakpoints": true
     }
   ]
 }

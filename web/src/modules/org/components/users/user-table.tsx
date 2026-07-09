@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { showResultError } from '@/core/client/errors'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import {
   Table,
   TableHeader,
@@ -58,6 +58,7 @@ export default function UserTable({
   const [tags, setTags] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const listRequestSeqRef = useRef(0)
 
   const flatDepartments = useMemo(
     () => flattenDepartmentTree(departments),
@@ -65,21 +66,32 @@ export default function UserTable({
   )
 
   const loadUsers = useCallback(async () => {
+    const seq = ++listRequestSeqRef.current
     setIsLoading(true)
-    const result = await listUsers({
-      page,
-      pageSize,
-      keyword: keyword || undefined,
-      department_id: departmentId || undefined,
-      role: role ? (role as SystemRoleValue) : undefined,
-      tags: tags || undefined,
-    })
-    setIsLoading(false)
-    if (result.success && result.data) {
-      setUsers(result.data.users)
-      setTotal(result.data.total)
-    } else {
-      showResultError(result, '加载失败')
+    try {
+      const result = await listUsers({
+        page,
+        pageSize,
+        keyword: keyword || undefined,
+        department_id: departmentId || undefined,
+        role: role ? (role as SystemRoleValue) : undefined,
+        tags: tags || undefined,
+      })
+      if (seq !== listRequestSeqRef.current) return
+      if (result.success && result.data) {
+        setUsers(result.data.users)
+        setTotal(result.data.total)
+      } else {
+        showResultError(result, '加载失败')
+      }
+    } catch (error) {
+      if (seq === listRequestSeqRef.current) {
+        showErrorToast({ title: '加载失败', error })
+      }
+    } finally {
+      if (seq === listRequestSeqRef.current) {
+        setIsLoading(false)
+      }
     }
   }, [page, pageSize, keyword, departmentId, role, tags])
 
@@ -89,7 +101,6 @@ export default function UserTable({
       skipFirstSyncRef.current = false
       return
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadUsers()
   }, [page, pageSize, departmentId, role, loadUsers])
 
@@ -100,24 +111,29 @@ export default function UserTable({
 
   const downloadCsv = async () => {
     setIsExporting(true)
-    const result = await exportUsersCsv({
-      keyword: keyword || undefined,
-      department_id: departmentId || undefined,
-      role: role ? (role as SystemRoleValue) : undefined,
-      tags: tags || undefined,
-    })
-    setIsExporting(false)
-    if (!result.success) {
-      showResultError(result, '导出失败')
-      return
+    try {
+      const result = await exportUsersCsv({
+        keyword: keyword || undefined,
+        department_id: departmentId || undefined,
+        role: role ? (role as SystemRoleValue) : undefined,
+        tags: tags || undefined,
+      })
+      if (!result.success) {
+        showResultError(result, '导出失败')
+        return
+      }
+      const blob = new Blob([result.data.csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = result.data.filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      showErrorToast({ title: '导出失败', error })
+    } finally {
+      setIsExporting(false)
     }
-    const blob = new Blob([result.data.csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = result.data.filename
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   const totalPages = Math.ceil(total / pageSize)
@@ -126,10 +142,12 @@ export default function UserTable({
     <div className="space-y-4">
       <AdminTableToolbar
         keyword={keyword}
-        onKeywordChange={setKeyword}
+        onKeywordChange={(value) => {
+          setKeyword(value)
+          setPage(1)
+        }}
         onSearch={handleSearch}
         searchPlaceholder="搜索姓名或工号..."
-        isLoading={isLoading}
         filters={
           <>
             <DepartmentTreeSelect
@@ -168,7 +186,10 @@ export default function UserTable({
               aria-label="标签筛选"
               placeholder="标签"
               value={tags}
-              onValueChange={setTags}
+              onValueChange={(value) => {
+                setTags(value)
+                setPage(1)
+              }}
               onKeyDown={(event) => event.key === 'Enter' && handleSearch()}
               size="sm"
               variant="bordered"

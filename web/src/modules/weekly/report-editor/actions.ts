@@ -3,19 +3,22 @@
 import { run } from '@/core/result'
 import * as svc from './service'
 import type { WeekHalfSlot } from '@/modules/weekly/lib/weekly-report-work-slots'
+import type { ProjectStageValue } from '@/constants/project-stage'
 
 export async function loadWeeklyReportEditorAction(input: {
   projectId: string
   weekCode: string
+  projectStage: ProjectStageValue
 }) {
   return run(() => svc.loadEditor(input))
 }
 
-export async function loadDeliverableFilesForWeeklyPickerAction(input: {
+export async function loadWeeklyReportFilesForPickerAction(input: {
   projectId: string
   weekStartDate: string
+  projectStage: ProjectStageValue
 }) {
-  return run(() => svc.loadDeliverablePicker(input))
+  return run(() => svc.loadWeeklyReportFilePicker(input))
 }
 
 export async function upsertWeeklyReportItemAction(input: {
@@ -43,6 +46,7 @@ export async function loadWeeklyReportDetailAction(reportId: string) {
 export async function getWeeklyReportMetaForUserWeekAction(input: {
   projectId: string
   weekCode: string
+  projectStage: ProjectStageValue
 }) {
   return run(() => svc.getMetaForUserWeek(input))
 }
@@ -60,4 +64,12 @@ export async function submitWeeklyReportApprovalDecisionAction(input: {
   rejectReason?: string | null
 }) {
   return run(() => svc.submitApprovalDecision(input))
+}
+
+export async function withdrawWeeklyReportAction(input: { reportId: string }) {
+  return run(() => svc.withdrawReport(input))
+}
+
+export async function deleteWeeklyReportAction(input: { reportId: string }) {
+  return run(() => svc.deleteReport(input))
 }

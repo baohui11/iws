@@ -18,7 +18,15 @@ interface DepartmentTreeSelectProps {
   description?: string
   variant?: 'flat' | 'bordered' | 'underlined' | 'faded'
   className?: string
+  classNames?: {
+    base?: string
+    listboxWrapper?: string
+    selectorButton?: string
+    clearButton?: string
+  }
   includeInactive?: boolean
+  showCode?: boolean
+  searchByCode?: boolean
 }
 
 function flattenDepartments(
@@ -70,7 +78,10 @@ export default function DepartmentTreeSelect({
   description,
   variant = 'underlined',
   className,
+  classNames,
   includeInactive = false,
+  showCode = false,
+  searchByCode = false,
 }: DepartmentTreeSelectProps) {
   const filteredDepartments = useMemo(() => {
     if (includeInactive) return departments
@@ -93,10 +104,13 @@ export default function DepartmentTreeSelect({
       options.map((option) => ({
         key: option.id,
         label: option.fullName,
-        description: option.dept.code ? `(${option.dept.code})` : undefined,
-        searchText: `${option.fullName} ${option.name} ${option.dept.code ?? ''}`,
+        description:
+          showCode && option.dept.code ? `(${option.dept.code})` : undefined,
+        searchText: searchByCode
+          ? `${option.fullName} ${option.name} ${option.dept.code ?? ''}`
+          : `${option.fullName} ${option.name}`,
       })),
-    [options]
+    [options, searchByCode, showCode]
   )
 
   const handleChange = (selectedId: string) => {
@@ -122,6 +136,7 @@ export default function DepartmentTreeSelect({
       description={description}
       variant={variant}
       className={className}
+      classNames={classNames}
       emptyOptionLabel={emptyOptionLabel}
     />
   )

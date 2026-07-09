@@ -257,6 +257,7 @@ export async function getPmProjectsForExemptions(
       id: projects.id,
       projectNo: projects.projectNo,
       projectName: projects.projectName,
+      projectStage: projects.projectStage,
       departmentId: projects.departmentId,
       departmentName: departments.name,
     })

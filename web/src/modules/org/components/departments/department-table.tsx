@@ -1,17 +1,17 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { showResultError } from '@/core/client/errors'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableColumn,
-  TableRow,
-  TableCell,
-  Switch,
   addToast,
+  Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
 } from '@heroui/react'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import {
   listDepartments,
   updateDepartmentActive,
@@ -38,39 +38,66 @@ export default function DepartmentTable({
   const [pageSize] = useState(20)
   const [keyword, setKeyword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [savingActiveId, setSavingActiveId] = useState<string | null>(null)
+  const savingActiveIdsRef = useRef(new Set<string>())
 
   const fetchPage = useCallback(
     async (p: number, kw: string) => {
       setIsLoading(true)
-      const result = await listDepartments({
-        page: p,
-        pageSize,
-        keyword: kw.trim() || undefined,
-      })
-      setIsLoading(false)
-      if (result.success && result.data) {
-        setRows(result.data.departments)
-        setTotal(result.data.total)
-      } else {
-        showResultError(result, '加载失败')
+      try {
+        const result = await listDepartments({
+          page: p,
+          pageSize,
+          keyword: kw.trim() || undefined,
+        })
+        if (result.success && result.data) {
+          setRows(result.data.departments)
+          setTotal(result.data.total)
+        } else {
+          showResultError(result, '加载失败')
+        }
+      } catch (error) {
+        showErrorToast({ title: '加载失败', error })
+      } finally {
+        setIsLoading(false)
       }
     },
     [pageSize]
   )
 
-  const skipFirst = useRef(true)
+  const skipFirstPage = useRef(true)
   useEffect(() => {
-    if (skipFirst.current) {
-      skipFirst.current = false
+    if (skipFirstPage.current) {
+      skipFirstPage.current = false
       return
     }
     void fetchPage(page, keyword)
+    // 翻页只由 page 触发；关键词变化走下面的防抖刷新。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, fetchPage])
+  }, [page])
+
+  const skipFirstKeyword = useRef(true)
+  useEffect(() => {
+    if (skipFirstKeyword.current) {
+      skipFirstKeyword.current = false
+      return
+    }
+    const timer = window.setTimeout(() => {
+      if (page !== 1) {
+        setPage(1)
+        return
+      }
+      void fetchPage(1, keyword)
+    }, 300)
+    return () => window.clearTimeout(timer)
+    // 只让关键词输入触发防抖刷新；翻页仍走分页 effect。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword])
 
   const handleSearch = () => {
-    setPage(1)
+    if (page !== 1) {
+      setPage(1)
+      return
+    }
     void fetchPage(1, keyword)
   }
 
@@ -78,13 +105,16 @@ export default function DepartmentTable({
     row: DepartmentWithRelations,
     isActive: boolean
   ) => {
+    if (savingActiveIdsRef.current.has(row.id)) return
+
     const previous = row.is_active
-    setSavingActiveId(row.id)
+    savingActiveIdsRef.current.add(row.id)
     setRows((current) =>
       current.map((item) =>
         item.id === row.id ? { ...item, is_active: isActive } : item
       )
     )
+
     try {
       const result = await updateDepartmentActive({
         id: row.id,
@@ -104,8 +134,15 @@ export default function DepartmentTable({
         color: 'success',
         timeout: 1600,
       })
+    } catch (error) {
+      setRows((current) =>
+        current.map((item) =>
+          item.id === row.id ? { ...item, is_active: previous } : item
+        )
+      )
+      showErrorToast({ title: '保存失败', error })
     } finally {
-      setSavingActiveId(null)
+      savingActiveIdsRef.current.delete(row.id)
     }
   }
 
@@ -115,10 +152,12 @@ export default function DepartmentTable({
     <div className="space-y-4">
       <AdminTableToolbar
         keyword={keyword}
-        onKeywordChange={setKeyword}
+        onKeywordChange={(value) => {
+          setKeyword(value)
+          setPage(1)
+        }}
         onSearch={handleSearch}
         searchPlaceholder="搜索名称或编码..."
-        isLoading={isLoading}
       />
 
       <Table
@@ -138,7 +177,7 @@ export default function DepartmentTable({
         </TableHeader>
         <TableBody
           items={rows}
-          emptyContent={<div className="text-default-400 py-8">暂无部门数据</div>}
+          emptyContent={<div className="py-8 text-default-400">暂无部门数据</div>}
           isLoading={isLoading}
           loadingContent={<div className="py-8">加载中...</div>}
         >
@@ -146,14 +185,13 @@ export default function DepartmentTable({
             <TableRow key={row.id}>
               <TableCell>{row.code}</TableCell>
               <TableCell>{row.name}</TableCell>
-              <TableCell>{row.parent_name ?? '—'}</TableCell>
-              <TableCell>{row.leader_name ?? '—'}</TableCell>
-              <TableCell>{row.level ?? '—'}</TableCell>
+              <TableCell>{row.parent_name ?? '-'}</TableCell>
+              <TableCell>{row.leader_name ?? '-'}</TableCell>
+              <TableCell>{row.level ?? '-'}</TableCell>
               <TableCell>
                 <Switch
                   size="sm"
                   isSelected={row.is_active}
-                  isDisabled={savingActiveId === row.id}
                   onValueChange={(value) => void setDepartmentActive(row, value)}
                 >
                   {row.is_active ? '已激活' : '未激活'}

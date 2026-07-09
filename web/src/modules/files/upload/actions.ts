@@ -11,8 +11,11 @@ export async function loadMemberActiveProjectsForFileUpload() {
   return run(() => svc.loadMemberActiveProjectsForFileUpload())
 }
 
-export async function loadFileUploadOptions(projectId: string) {
-  return run(() => svc.loadFileUploadOptions(projectId))
+export async function loadFileUploadOptions(
+  projectId: string,
+  projectStage: Parameters<typeof svc.loadFileUploadOptions>[1]
+) {
+  return run(() => svc.loadFileUploadOptions(projectId, projectStage))
 }
 
 export async function uploadReferenceFileAction(formData: FormData) {

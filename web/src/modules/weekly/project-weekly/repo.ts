@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import {
   projects,
@@ -17,6 +17,7 @@ import {
 } from '@/modules/weekly/lib/week-display'
 import { nextWeekRangeAfterWeekEnd } from '@/modules/weekly/lib/week-report-dates'
 import { loadWeeklyReportItemsForReportIds } from '../report-editor/repo'
+import type { ProjectStageValue } from '@/constants/project-stage'
 import type {
   ProjectWeeklyReporterRow,
   ProjectWeeklyWeekGroup,
@@ -25,19 +26,26 @@ import type {
   ProjectWeekWorkItemsPage,
 } from '../types'
 
-async function fetchProjectWeekIndex(projectId: string) {
+const PROJECT_VISIBLE_REPORT_STATUSES = ['pending', 'approved', 'rejected'] as const
+
+async function fetchProjectWeekIndex(
+  projectId: string,
+  projectStage?: ProjectStageValue | null
+) {
   const db = getDb()
+  const reportConditions = [
+    eq(weeklyReports.projectId, projectId),
+    inArray(weeklyReports.status, PROJECT_VISIBLE_REPORT_STATUSES),
+  ]
+  if (projectStage) {
+    reportConditions.push(eq(weeklyReports.projectStage, projectStage))
+  }
 
   const [codeRows, exRows] = await Promise.all([
     db
       .select({ weekCode: weeklyReports.weekCode })
       .from(weeklyReports)
-      .where(
-        and(
-          eq(weeklyReports.projectId, projectId),
-          ne(weeklyReports.status, 'draft')
-        )
-      ),
+      .where(and(...reportConditions)),
     db
       .select({
         startWeekCode: projectWeekExemptions.startWeekCode,
@@ -75,13 +83,14 @@ async function fetchProjectWeekIndex(projectId: string) {
 export async function getProjectWeeklyWeeksPage(
   projectId: string,
   weekOffset: number,
-  weekLimit = WEEKLY_PROJECT_WEEKS_PAGE_SIZE
+  weekLimit = WEEKLY_PROJECT_WEEKS_PAGE_SIZE,
+  projectStage?: ProjectStageValue | null
 ): Promise<ProjectWeeklyWeeksPage> {
   const off = Math.max(0, weekOffset)
   const lim = Math.min(Math.max(1, weekLimit), 50)
 
   const { noWorkWeekSet, orderedWeeks } =
-    await fetchProjectWeekIndex(projectId)
+    await fetchProjectWeekIndex(projectId, projectStage)
 
   const totalWeeks = orderedWeeks.length
   const pageCodes = orderedWeeks.slice(off, off + lim)
@@ -91,6 +100,15 @@ export async function getProjectWeeklyWeeksPage(
   }
 
   const db = getDb()
+  const reportConditions = [
+    eq(weeklyReports.projectId, projectId),
+    inArray(weeklyReports.weekCode, pageCodes),
+    inArray(weeklyReports.status, PROJECT_VISIBLE_REPORT_STATUSES),
+  ]
+  if (projectStage) {
+    reportConditions.push(eq(weeklyReports.projectStage, projectStage))
+  }
+
   const reportList = await db
     .select({
       id: weeklyReports.id,
@@ -99,13 +117,7 @@ export async function getProjectWeeklyWeeksPage(
       status: weeklyReports.status,
     })
     .from(weeklyReports)
-    .where(
-      and(
-        eq(weeklyReports.projectId, projectId),
-        inArray(weeklyReports.weekCode, pageCodes),
-        ne(weeklyReports.status, 'draft')
-      )
-    )
+    .where(and(...reportConditions))
 
   const reportIds = reportList.map((r) => r.id)
 
@@ -230,7 +242,7 @@ export async function getProjectWeekWorkItemsPage(
       and(
         eq(weeklyReports.projectId, projectId),
         eq(weeklyReports.weekCode, weekCode),
-        ne(weeklyReports.status, 'draft')
+        inArray(weeklyReports.status, PROJECT_VISIBLE_REPORT_STATUSES)
       )
     )
 

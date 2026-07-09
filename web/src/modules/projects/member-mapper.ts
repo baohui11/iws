@@ -8,6 +8,7 @@ export function mapDbProjectMemberToRow(m: {
   is_active: boolean
   user_name: string | null
   user_email: string | null
+  user_department_name?: string | null
 }): ProjectMemberRow {
   return {
     id: m.id,
@@ -17,5 +18,6 @@ export function mapDbProjectMemberToRow(m: {
     is_active: m.is_active,
     user_name: m.user_name ?? null,
     user_email: m.user_email ?? null,
+    user_department_name: m.user_department_name ?? null,
   }
 }

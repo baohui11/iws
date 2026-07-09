@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   Button,
   Chip,
@@ -12,8 +11,8 @@ import {
 import { Icon } from '@iconify/react'
 import { loadPmApprovalListAction } from '@/modules/weekly/reports/actions'
 import { showResultError } from '@/core/client/errors'
-import WeekMultiSelect from '@/modules/weekly/components/filters/week-multi-select'
-import ProjectMultiSelect from '@/modules/weekly/components/filters/project-multi-select'
+import WeekRangeSelects from '@/modules/weekly/components/filters/week-range-selects'
+import ProjectSearchSelect from '@/modules/projects/components/project-search-select'
 import { WEEKLY_REPORTS_PAGE_SIZE } from '@/constants/weekly-reports-list'
 import type {
   ApprovalDoneFilter,
@@ -22,10 +21,7 @@ import type {
   WeekOption,
 } from '@/modules/weekly/types'
 import {
-  buildWeeklyApprovalsSearchParams,
-  parseWeeklyApprovalsSearchParamsFromSearchParams,
-  resolveEffectiveWeekCodes,
-  type WeeklyApprovalsUrlState,
+  resolveApprovalWeekCodes,
 } from '@/modules/weekly/lib/weekly-reports-url'
 import { formatWeekCodeLabelZh } from '@/modules/weekly/lib/iso-week'
 import {
@@ -39,7 +35,8 @@ interface MyApprovalsListProps {
   pageSize?: number
   weekOptions: WeekOption[]
   pmProjects: MemberProjectOption[]
-  initialUrlState: WeeklyApprovalsUrlState
+  initialWeekFrom: string
+  initialWeekTo: string
 }
 
 const APPROVAL_FILTER_OPTIONS: {
@@ -58,39 +55,40 @@ export default function MyApprovalsList({
   pageSize = WEEKLY_REPORTS_PAGE_SIZE,
   weekOptions,
   pmProjects,
-  initialUrlState,
+  initialWeekFrom,
+  initialWeekTo,
 }: MyApprovalsListProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-
   const [rows, setRows] = useState(initialRows)
   const [total, setTotal] = useState(initialTotal)
-  const [approvalFilter, setApprovalFilter] = useState<ApprovalDoneFilter>(
-    initialUrlState.approval
-  )
-  const [weekKeys, setWeekKeys] = useState<Set<string>>(
-    () => new Set(initialUrlState.weeks)
-  )
-  const [projectKeys, setProjectKeys] = useState<Set<string>>(
-    () => new Set(initialUrlState.projects)
-  )
+  const [approvalFilter, setApprovalFilter] = useState<ApprovalDoneFilter>('all')
+  const [weekFrom, setWeekFrom] = useState(initialWeekFrom)
+  const [weekTo, setWeekTo] = useState(initialWeekTo)
+  const [projectId, setProjectId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
 
-  const skipEffect = useRef(false)
-  const firstEffect = useRef(true)
   const loadingMoreRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
 
+  type ApprovalFilterState = {
+    approval: ApprovalDoneFilter
+    weekFrom: string
+    weekTo: string
+    projectId: string
+  }
+
   const fetchData = useCallback(
-    async (state: WeeklyApprovalsUrlState) => {
+    async (state: ApprovalFilterState) => {
       setIsLoading(true)
       const result = await loadPmApprovalListAction({
         approvalFilter: state.approval,
-        weekCodes: [...state.weeks],
-        projectIds: [...state.projects],
+        weekCodes: resolveApprovalWeekCodes(weekOptions, {
+          weekFrom: state.weekFrom,
+          weekTo: state.weekTo,
+          hasWeekRangeInUrl: true,
+        }),
+        projectIds: state.projectId ? [state.projectId] : [],
         offset: 0,
         limit: pageSize,
       })
@@ -102,7 +100,7 @@ export default function MyApprovalsList({
       setTotal(result.data.total)
     }
     },
-    [pageSize]
+    [pageSize, weekOptions]
   )
 
   const loadMore = useCallback(async () => {
@@ -112,8 +110,12 @@ export default function MyApprovalsList({
     setLoadingMore(true)
     const result = await loadPmApprovalListAction({
       approvalFilter,
-      weekCodes: [...weekKeys],
-      projectIds: [...projectKeys],
+      weekCodes: resolveApprovalWeekCodes(weekOptions, {
+        weekFrom,
+        weekTo,
+        hasWeekRangeInUrl: true,
+      }),
+      projectIds: projectId ? [projectId] : [],
       offset: rows.length,
       limit: pageSize,
     })
@@ -128,7 +130,17 @@ export default function MyApprovalsList({
         return [...prev, ...next]
       })
     }
-  }, [approvalFilter, isLoading, pageSize, projectKeys, rows.length, total, weekKeys])
+  }, [
+    approvalFilter,
+    isLoading,
+    pageSize,
+    projectId,
+    rows.length,
+    total,
+    weekFrom,
+    weekOptions,
+    weekTo,
+  ])
 
   useEffect(() => {
     const root = scrollRef.current
@@ -156,54 +168,13 @@ export default function MyApprovalsList({
     void loadMore()
   }, [isLoading, loadMore, loadingMore, rows.length, total])
 
-  const replaceUrl = useCallback(
-    (state: WeeklyApprovalsUrlState) => {
-      skipEffect.current = true
-      const p = buildWeeklyApprovalsSearchParams(state)
-      const qs = p.toString()
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
-    },
-    [pathname, router]
-  )
-
-  const apply = (next: WeeklyApprovalsUrlState) => {
+  const apply = (next: ApprovalFilterState) => {
     setApprovalFilter(next.approval)
-    setWeekKeys(new Set(next.weeks))
-    setProjectKeys(new Set(next.projects))
-    replaceUrl(next)
+    setWeekFrom(next.weekFrom)
+    setWeekTo(next.weekTo)
+    setProjectId(next.projectId)
     void fetchData(next)
   }
-
-  const searchKey = searchParams.toString()
-  useEffect(() => {
-    if (firstEffect.current) {
-      firstEffect.current = false
-      return
-    }
-    if (skipEffect.current) {
-      skipEffect.current = false
-      return
-    }
-    const parsed = parseWeeklyApprovalsSearchParamsFromSearchParams(
-      searchParams
-    )
-    const effectiveWeeks = resolveEffectiveWeekCodes(
-      weekOptions,
-      parsed.hasWeeksInUrl,
-      parsed.weeks
-    )
-    // 浏览器前进/后退时按 URL 同步筛选态（外部 store 同步）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setApprovalFilter(parsed.approval)
-    setWeekKeys(new Set(effectiveWeeks))
-    setProjectKeys(new Set(parsed.projects))
-    void fetchData({
-      approval: parsed.approval,
-      weeks: effectiveWeeks,
-      projects: parsed.projects,
-      hasWeeksInUrl: parsed.hasWeeksInUrl,
-    })
-  }, [searchKey, searchParams, fetchData, weekOptions])
 
   return (
     <div className="space-y-6">
@@ -216,9 +187,9 @@ export default function MyApprovalsList({
             const k = v as ApprovalDoneFilter
             apply({
               approval: k,
-              weeks: [...weekKeys],
-              projects: [...projectKeys],
-              hasWeeksInUrl: true,
+              weekFrom,
+              weekTo,
+              projectId,
             })
           }}
           isDisabled={isLoading}
@@ -234,32 +205,39 @@ export default function MyApprovalsList({
           ))}
         </RadioGroup>
 
-        <WeekMultiSelect
+        <WeekRangeSelects
           weekOptions={weekOptions}
-          selectedKeys={weekKeys}
-          onSelectionChange={(keys) =>
+          weekFrom={weekFrom}
+          weekTo={weekTo}
+          onChange={({ weekFrom: wf, weekTo: wt }) =>
             apply({
               approval: approvalFilter,
-              weeks: [...keys],
-              projects: [...projectKeys],
-              hasWeeksInUrl: true,
+              weekFrom: wf,
+              weekTo: wt,
+              projectId,
             })
           }
           isDisabled={isLoading}
         />
 
-        <ProjectMultiSelect
+        <ProjectSearchSelect
           projects={pmProjects}
-          selectedKeys={projectKeys}
-          onSelectionChange={(keys) =>
+          value={projectId}
+          onChange={(nextProjectId) =>
             apply({
               approval: approvalFilter,
-              weeks: [...weekKeys],
-              projects: [...keys],
-              hasWeeksInUrl: true,
+              weekFrom,
+              weekTo,
+              projectId: nextProjectId,
             })
           }
           isDisabled={isLoading}
+          label=""
+          placeholder="全部项目"
+          emptyOptionLabel="全部项目"
+          size="sm"
+          variant="bordered"
+          className="w-[18rem] min-w-[18rem] max-w-[18rem] shrink-0"
         />
       </div>
 

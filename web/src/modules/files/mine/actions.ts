@@ -2,12 +2,12 @@
 
 import { run } from '@/core/result'
 import * as svc from './service'
-import type { FilesMineTab } from '../types'
 
 export async function loadMineFilesPageAction(input: {
-  tab: FilesMineTab
   offset: number
   fileNameQuery?: string | null
+  projectId?: string | null
+  projectStage?: string | null
 }) {
   return run(() => svc.loadMineFilesPage(input))
 }

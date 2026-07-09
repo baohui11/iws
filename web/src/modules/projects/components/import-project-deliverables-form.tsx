@@ -35,29 +35,34 @@ export default function ImportProjectDeliverablesForm() {
       return
     }
     setIsPending(true)
-    const result = await importProjectDeliverables(rows)
-    setIsPending(false)
-    if (result.success && result.data) {
-      const { succeeded, failed, total, results } = result.data
-      addToast({
-        title: '导入完成',
-        description: `共 ${total} 条，成功 ${succeeded}，失败 ${failed}`,
-        color: failed > 0 ? 'warning' : 'success',
-        timeout: 4000,
-      })
-      if (failed > 0) {
-        const detail = results
-          .filter((r) => !r.success)
-          .slice(0, 5)
-          .map((r) => `${r.project_no}/${r.name}: ${r.message}`)
-          .join('；')
-        showErrorToast({ title: '部分失败', message: detail })
+    try {
+      const result = await importProjectDeliverables(rows)
+      if (result.success && result.data) {
+        const { succeeded, failed, total, results } = result.data
+        addToast({
+          title: '导入完成',
+          description: `共 ${total} 条，成功 ${succeeded}，失败 ${failed}`,
+          color: failed > 0 ? 'warning' : 'success',
+          timeout: 4000,
+        })
+        if (failed > 0) {
+          const detail = results
+            .filter((r) => !r.success)
+            .slice(0, 5)
+            .map((r) => `${r.project_no}/${r.name}: ${r.message}`)
+            .join('；')
+          showErrorToast({ title: '部分失败', message: detail })
+        }
+        if (inputRef.current) inputRef.current.value = ''
+        setFileName(null)
+        setPreviewCount(null)
+      } else {
+        showResultError(result, '导入失败')
       }
-      if (inputRef.current) inputRef.current.value = ''
-      setFileName(null)
-      setPreviewCount(null)
-    } else {
-      showResultError(result, '导入失败')
+    } catch (error) {
+      showErrorToast({ title: '导入失败', error })
+    } finally {
+      setIsPending(false)
     }
   }
 

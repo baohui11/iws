@@ -8,6 +8,7 @@ import {
   isNull,
   lte,
   ne,
+  sql,
 } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import {
@@ -30,6 +31,7 @@ import {
   formatWeekTitleZh,
   isTodayInWeekRange,
 } from '@/modules/weekly/lib/week-display'
+import type { ProjectStageValue } from '@/constants/project-stage'
 import type {
   MemberProjectOption,
   MyFilledReportRow,
@@ -38,6 +40,7 @@ import type {
   PmApprovalListPaged,
   PmApprovalListParams,
   PmApprovalListRow,
+  WeeklyDashboardRecentProject,
   WeekOption,
 } from '../types'
 
@@ -69,7 +72,8 @@ async function fetchPmProjectIds(userId: string): Promise<string[]> {
     .where(
       and(
         eq(projectMembers.userId, userId),
-        eq(projectMembers.projectRole, 'pm'),
+        eq(projectMembers.projectRole, '项目经理'),
+        eq(projectMembers.projectStage, '实施阶段'),
         eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
@@ -88,7 +92,8 @@ export async function projectHasPm(projectId: string): Promise<boolean> {
     .where(
       and(
         eq(projectMembers.projectId, projectId),
-        eq(projectMembers.projectRole, 'pm'),
+        eq(projectMembers.projectRole, '项目经理'),
+        eq(projectMembers.projectStage, '实施阶段'),
         eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
@@ -103,18 +108,23 @@ export function mapProjectRowWithDepartment(r: {
   projectName: string | null
   departmentId: string | null
   departmentName: string | null
+  projectStage: MemberProjectOption['project_stage']
+  availableProjectStages?: ProjectStageValue[]
 }): MemberProjectOption {
   return {
     id: r.id,
     project_no: r.projectNo,
     project_name: r.projectName,
+    project_stage: r.projectStage,
+    available_project_stages: r.availableProjectStages ?? [],
     department_id: r.departmentId,
     department_name: r.departmentName,
   }
 }
 
 async function fetchProjectsForFilter(
-  projectIds: string[]
+  projectIds: string[],
+  userId?: string
 ): Promise<MemberProjectOption[]> {
   if (!projectIds.length) return []
   const db = getDb()
@@ -123,6 +133,7 @@ async function fetchProjectsForFilter(
       id: projects.id,
       projectNo: projects.projectNo,
       projectName: projects.projectName,
+      projectStage: projects.projectStage,
       departmentId: projects.departmentId,
       departmentName: departments.name,
     })
@@ -131,20 +142,50 @@ async function fetchProjectsForFilter(
     .where(
       and(
         inArray(projects.id, projectIds),
+        eq(projects.projectStatus, '进行中'),
         isNull(projects.deletedAt),
         eq(projects.isActive, true)
       )
     )
     .orderBy(asc(projects.projectNo))
 
-  return rows.map(mapProjectRowWithDepartment)
+  const stagesByProject = new Map<string, ProjectStageValue[]>()
+  if (userId) {
+    const memberRows = await db
+      .select({
+        projectId: projectMembers.projectId,
+        projectStage: projectMembers.projectStage,
+      })
+      .from(projectMembers)
+      .where(
+        and(
+          eq(projectMembers.userId, userId),
+          inArray(projectMembers.projectId, projectIds),
+          eq(projectMembers.isActive, true),
+          isNull(projectMembers.deletedAt)
+        )
+      )
+    for (const row of memberRows) {
+      if (!row.projectId || !row.projectStage) continue
+      const stages = stagesByProject.get(row.projectId) ?? []
+      if (!stages.includes(row.projectStage)) stages.push(row.projectStage)
+      stagesByProject.set(row.projectId, stages)
+    }
+  }
+
+  return rows.map((row) =>
+    mapProjectRowWithDepartment({
+      ...row,
+      availableProjectStages: stagesByProject.get(row.id) ?? [],
+    })
+  )
 }
 
 export async function getMemberProjectsForWeeklyFilter(
   userId: string
 ): Promise<MemberProjectOption[]> {
   const projectIds = await fetchMemberProjectIds(userId)
-  return fetchProjectsForFilter(projectIds)
+  return fetchProjectsForFilter(projectIds, userId)
 }
 
 export async function getPmProjectsForFilter(
@@ -231,6 +272,7 @@ export async function getMyFilledReportsWithStats(
       id: weeklyReports.id,
       projectId: weeklyReports.projectId,
       weekCode: weeklyReports.weekCode,
+      projectStage: weeklyReports.projectStage,
       status: weeklyReports.status,
     })
     .from(weeklyReports)
@@ -275,6 +317,7 @@ export async function getMyFilledReportsWithStats(
       id: r.id,
       project_id: r.projectId,
       week_code: r.weekCode,
+      project_stage: r.projectStage,
       status: r.status as MyFilledReportRow['status'],
       project_name: nameBy.get(r.projectId) ?? null,
       item_count: countBy.get(r.id) ?? 0,
@@ -308,7 +351,8 @@ export async function getPmApprovalList(
   const conditions = [
     ne(weeklyReports.userId, userId),
     inArray(weeklyReports.projectId, projectScope),
-    ne(weeklyReports.status, 'draft'),
+    eq(weeklyReports.projectStage, '实施阶段'),
+    inArray(weeklyReports.status, ['pending', 'approved', 'rejected']),
     ...(cappedWeeks?.length
       ? [inArray(weeklyReports.weekCode, cappedWeeks)]
       : []),
@@ -320,6 +364,7 @@ export async function getPmApprovalList(
       userId: weeklyReports.userId,
       projectId: weeklyReports.projectId,
       weekCode: weeklyReports.weekCode,
+      projectStage: weeklyReports.projectStage,
       status: weeklyReports.status,
       submitTime: weeklyReports.submitTime,
     })
@@ -395,6 +440,7 @@ export async function getPmApprovalList(
     id: r.id,
     project_id: r.projectId,
     week_code: r.weekCode,
+    project_stage: r.projectStage,
     status: r.status as PmApprovalListRow['status'],
     project_name: projName.get(r.projectId) ?? null,
     author_name: userName.get(r.userId) ?? '—',
@@ -427,6 +473,7 @@ export async function getPmPendingApprovalCount(
       and(
         ne(weeklyReports.userId, userId),
         inArray(weeklyReports.projectId, pmIds),
+        eq(weeklyReports.projectStage, '实施阶段'),
         eq(weeklyReports.status, 'pending')
       )
     )
@@ -440,4 +487,118 @@ export async function isPmOnAnyProject(userId: string): Promise<boolean> {
 
 export async function getPmProjectIdsForUser(userId: string): Promise<string[]> {
   return fetchPmProjectIds(userId)
+}
+
+export async function getSubmittedWorkDaysForWeek(
+  userId: string,
+  weekCode: string
+): Promise<number> {
+  const db = getDb()
+  const [{ value }] = await db
+    .select({
+      value: sql<string | null>`coalesce(sum(${weeklyReportItems.workDays}), 0)`,
+    })
+    .from(weeklyReports)
+    .innerJoin(
+      weeklyReportItems,
+      eq(weeklyReportItems.reportId, weeklyReports.id)
+    )
+    .where(
+      and(
+        eq(weeklyReports.userId, userId),
+        eq(weeklyReports.weekCode, weekCode),
+        inArray(weeklyReports.status, ['pending', 'approved']),
+        eq(weeklyReportItems.itemType, 'work')
+      )
+    )
+
+  return Math.round(Number(value ?? 0) * 10) / 10
+}
+
+export async function getRecentDashboardProjects(input: {
+  userId: string
+  weekCodes: string[]
+  limit?: number
+}): Promise<WeeklyDashboardRecentProject[]> {
+  const limit = Math.min(Math.max(1, input.limit ?? 4), 8)
+  if (!input.weekCodes.length) return []
+  const db = getDb()
+  const reportRows = await db
+    .select({
+      projectId: weeklyReports.projectId,
+      projectStage: weeklyReports.projectStage,
+      weekCode: weeklyReports.weekCode,
+      status: weeklyReports.status,
+      updatedAt: weeklyReports.updatedAt,
+      projectName: projects.projectName,
+      projectStatus: projects.projectStatus,
+      projectActive: projects.isActive,
+      projectDeletedAt: projects.deletedAt,
+    })
+    .from(weeklyReports)
+    .innerJoin(projects, eq(projects.id, weeklyReports.projectId))
+    .where(
+      and(
+        eq(weeklyReports.userId, input.userId),
+        inArray(weeklyReports.weekCode, input.weekCodes)
+      )
+    )
+    .orderBy(desc(weeklyReports.updatedAt))
+    .limit(80)
+
+  if (!reportRows.length) return []
+
+  const projectIds = [...new Set(reportRows.map((row) => row.projectId))]
+  const memberRows = await db
+    .select({
+      projectId: projectMembers.projectId,
+      projectStage: projectMembers.projectStage,
+    })
+    .from(projectMembers)
+    .where(
+      and(
+        eq(projectMembers.userId, input.userId),
+        inArray(projectMembers.projectId, projectIds),
+        eq(projectMembers.isActive, true),
+        isNull(projectMembers.deletedAt)
+      )
+    )
+
+  const activeStagesByProject = new Map<string, ProjectStageValue[]>()
+  for (const row of memberRows) {
+    if (!row.projectId || !row.projectStage) continue
+    const stages = activeStagesByProject.get(row.projectId) ?? []
+    if (!stages.includes(row.projectStage)) stages.push(row.projectStage)
+    activeStagesByProject.set(row.projectId, stages)
+  }
+
+  const byProject = new Map<string, WeeklyDashboardRecentProject>()
+  for (const row of reportRows) {
+    const existing = byProject.get(row.projectId)
+    const activeStages = activeStagesByProject.get(row.projectId) ?? []
+    const projectUsable =
+      row.projectDeletedAt == null && row.projectActive && activeStages.length > 0
+    const canUploadFile = projectUsable
+    const canCreateReport = projectUsable && row.projectStatus === '进行中'
+    const actionStage = activeStages.includes(row.projectStage)
+      ? row.projectStage
+      : (activeStages[0] ?? null)
+
+    if (!existing) {
+      byProject.set(row.projectId, {
+        project_id: row.projectId,
+        project_name: row.projectName,
+        stages: [row.projectStage],
+        action_stage: actionStage,
+        latest_week_code: row.weekCode,
+        latest_status: row.status as WeeklyDashboardRecentProject['latest_status'],
+        can_create_report: canCreateReport,
+        can_upload_file: canUploadFile,
+      })
+    } else if (!existing.stages.includes(row.projectStage)) {
+      existing.stages.push(row.projectStage)
+    }
+  }
+
+  return [...byProject.values()].slice(0, limit)
 }

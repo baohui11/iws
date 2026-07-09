@@ -17,7 +17,7 @@ import {
   saveDataScopesAction,
   searchDataScopeUsersAction,
 } from '@/modules/org/users/actions'
-import { showResultError } from '@/core/client/errors'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import { randomClientId } from '@/core/random-client-id'
 
 interface ScopeLine {
@@ -133,14 +133,13 @@ export default function DataScopeForm({
       })
       if (!result.success) {
         showResultError(result, '保存失败')
-        setIsSaving(false)
         return
       }
       addToast({ title: '数据权限已保存', color: 'success', timeout: 2000 })
-      setIsSaving(false)
       router.push('/admin/data-scopes')
-    } catch {
-      addToast({ title: '保存失败', color: 'danger', timeout: 2500 })
+    } catch (error) {
+      showErrorToast({ title: '保存失败', error })
+    } finally {
       setIsSaving(false)
     }
   }

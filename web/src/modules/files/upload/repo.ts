@@ -21,6 +21,11 @@ import {
   type ReferenceFileOption,
   type FileSourceValue,
 } from '../types'
+import {
+  PROJECT_STAGE_IMPLEMENTATION,
+  PROJECT_STAGE_SALES,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
 
 /** 当前用户为成员且项目已在 IWS 激活 */
 export async function listMemberActiveProjectsForUpload(
@@ -28,7 +33,10 @@ export async function listMemberActiveProjectsForUpload(
 ): Promise<MemberActiveProjectOption[]> {
   const db = getDb()
   const mems = await db
-    .select({ project_id: projectMembers.projectId })
+    .select({
+      project_id: projectMembers.projectId,
+      project_stage: projectMembers.projectStage,
+    })
     .from(projectMembers)
     .where(
       and(
@@ -38,11 +46,18 @@ export async function listMemberActiveProjectsForUpload(
       )
     )
 
-  const ids = [
-    ...new Set(
-      mems.map((m) => m.project_id).filter((id): id is string => id != null)
-    ),
-  ]
+  const stagesByProject = new Map<string, ProjectStageValue[]>()
+  for (const member of mems) {
+    if (!member.project_id) continue
+    const stage =
+      member.project_stage === PROJECT_STAGE_SALES
+        ? PROJECT_STAGE_SALES
+        : PROJECT_STAGE_IMPLEMENTATION
+    const stages = stagesByProject.get(member.project_id) ?? []
+    if (!stages.includes(stage)) stages.push(stage)
+    stagesByProject.set(member.project_id, stages)
+  }
+  const ids = [...stagesByProject.keys()]
   if (!ids.length) return []
 
   const projectRows = await db
@@ -61,13 +76,17 @@ export async function listMemberActiveProjectsForUpload(
     )
     .orderBy(projects.projectNo)
 
-  return projectRows
+  return projectRows.map((project) => ({
+    ...project,
+    available_project_stages: stagesByProject.get(project.id) ?? [],
+  }))
 }
 
 /** 当前用户为成员且项目已在 IWS 激活 */
-export async function assertMemberActiveProject(
+export async function assertMemberActiveProjectStage(
   userId: string,
-  projectId: string
+  projectId: string,
+  projectStage: ProjectStageValue
 ): Promise<void> {
   const db = getDb()
   const memRows = await db
@@ -77,13 +96,14 @@ export async function assertMemberActiveProject(
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectId, projectId),
+        eq(projectMembers.projectStage, projectStage),
         eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
     .limit(1)
 
-  if (!memRows.length) throw new BusinessError('您不是该项目成员')
+  if (!memRows.length) throw new BusinessError('您不是该项目该阶段成员')
 
   const projRows = await db
     .select({ is_active: projects.isActive })
@@ -194,7 +214,8 @@ export async function listExistingDeliverableFilesForProject(
 }
 
 export async function listReferenceFilesForProject(
-  projectId: string
+  projectId: string,
+  projectStage: ProjectStageValue = PROJECT_STAGE_IMPLEMENTATION
 ): Promise<ReferenceFileOption[]> {
   const db = getDb()
   const rows = await db
@@ -208,6 +229,7 @@ export async function listReferenceFilesForProject(
     .where(
       and(
         eq(files.projectId, projectId),
+        eq(files.projectStage, projectStage),
         eq(files.isDeliverable, false),
         eq(files.isLatest, true)
       )
@@ -287,7 +309,8 @@ export async function existsDeliverableVersionInGroup(
 /** 项目内参考资料：同名最新一条 */
 export async function existsReferenceDuplicateName(
   projectId: string,
-  fileName: string
+  fileName: string,
+  projectStage: ProjectStageValue
 ): Promise<boolean> {
   const db = getDb()
   const rows = await db
@@ -296,6 +319,7 @@ export async function existsReferenceDuplicateName(
     .where(
       and(
         eq(files.projectId, projectId),
+        eq(files.projectStage, projectStage),
         eq(files.fileName, fileName),
         eq(files.isDeliverable, false),
         eq(files.isLatest, true)
@@ -367,6 +391,8 @@ export async function insertDeliverableFileRow(
     isLatest: true,
     isDeliverable: true,
     contractDeliverableId: input.contractDeliverableId,
+    projectStage: input.projectStage,
+    salesFileTag: input.salesFileTag,
     fileSource: input.fileSource as FileSourceValue,
     isConfidential: input.isConfidential,
     previewStatus: 'pending',
@@ -396,6 +422,8 @@ export async function insertReferenceFileRow(
     isLatest: true,
     isDeliverable: false,
     contractDeliverableId: null,
+    projectStage: input.projectStage,
+    salesFileTag: input.salesFileTag,
     fileSource: input.fileSource as FileSourceValue,
     isConfidential: input.isConfidential,
     previewStatus: 'pending',

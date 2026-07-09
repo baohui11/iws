@@ -9,6 +9,7 @@ import {
   getProjectWeeklyWeeksPage,
   getProjectWeekWorkItemsPage,
 } from './repo'
+import { parseProjectStage } from '@/constants/project-stage'
 
 export interface ExportProjectWeekExcelResult {
   fileName: string
@@ -18,10 +19,12 @@ export interface ExportProjectWeekExcelResult {
 export async function loadProjectWeeklyWeeks(
   projectId: string,
   weekOffset: number,
-  weekLimit?: number
+  weekLimit?: number,
+  projectStageRaw?: string | null
 ) {
   await assertProjectAccess(projectId)
-  return getProjectWeeklyWeeksPage(projectId, weekOffset, weekLimit)
+  const projectStage = parseProjectStage(projectStageRaw)
+  return getProjectWeeklyWeeksPage(projectId, weekOffset, weekLimit, projectStage)
 }
 
 export async function loadProjectWeekWorkItems(

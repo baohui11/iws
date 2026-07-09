@@ -15,6 +15,7 @@ import {
   weeklyReportAction,
   weeklyReportItemType,
   weeklyReportStatus,
+  projectStage,
 } from './enums'
 import { users } from './org'
 import { projects } from './projects'
@@ -50,11 +51,12 @@ export const weeklyReports = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
     weekCode: text().notNull(),
+    projectStage: projectStage().default('实施阶段').notNull(),
     status: weeklyReportStatus().default('draft').notNull(),
     submitTime: timestamp({ withTimezone: true }),
     isOverdue: boolean().default(false).notNull(),
   },
-  (t) => [unique().on(t.userId, t.projectId, t.weekCode)]
+  (t) => [unique().on(t.userId, t.projectId, t.weekCode, t.projectStage)]
 )
 
 export const weeklyReportItems = pgTable('weekly_report_items', {

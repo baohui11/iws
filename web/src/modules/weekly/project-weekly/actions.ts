@@ -6,9 +6,12 @@ import * as svc from './service'
 export async function loadProjectWeeklyWeeksAction(
   projectId: string,
   weekOffset: number,
-  weekLimit?: number
+  weekLimit?: number,
+  projectStage?: string | null
 ) {
-  return run(() => svc.loadProjectWeeklyWeeks(projectId, weekOffset, weekLimit))
+  return run(() =>
+    svc.loadProjectWeeklyWeeks(projectId, weekOffset, weekLimit, projectStage)
+  )
 }
 
 export async function loadProjectWeekWorkItemsAction(

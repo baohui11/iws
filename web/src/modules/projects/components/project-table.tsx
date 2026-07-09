@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { showResultError } from '@/core/client/errors'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import {
   Table,
   TableHeader,
@@ -15,33 +15,28 @@ import {
   DropdownTrigger,
   DropdownMenu,
   DropdownItem,
-  Select,
-  SelectItem,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import Link from 'next/link'
 import { exportProjectsCsv, listProjects } from '@/modules/projects/actions'
 import type { ProjectListItem } from '@/modules/projects/types'
 import type { DepartmentNode } from '@/modules/org/departments/repo'
-import DepartmentTreeSelect from '@/modules/org/components/department-tree-select'
 import {
   flattenDepartmentTree,
   formatDepartmentPathLabel,
 } from '@/modules/org/departments/display'
 import {
-  PROJECT_STATUS_VALUES,
   PROJECT_STATUS_LABEL,
   type ProjectStatusValue,
 } from '@/constants/project-status'
 import {
   PROJECT_STAGE_LABEL,
-  PROJECT_STAGE_VALUES,
   type ProjectStageValue,
 } from '@/constants/project-stage'
+import ProjectListFilters from '@/modules/projects/components/project-list-filters'
 import {
   AdminTablePagination,
   AdminTableSummary,
-  AdminTableToolbar,
 } from '@/components/common/admin-table-controls'
 
 const STATUS_COLOR: Record<
@@ -81,6 +76,7 @@ export default function ProjectTable({
   const [projectStatus, setProjectStatus] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const listRequestSeqRef = useRef(0)
 
   const flatDepartments = useMemo(
     () => flattenDepartmentTree(departments),
@@ -95,21 +91,32 @@ export default function ProjectTable({
       stage: string,
       status: string
     ) => {
+      const seq = ++listRequestSeqRef.current
       setIsLoading(true)
-      const result = await listProjects({
-        page: p,
-        pageSize,
-        keyword: kw.trim() || undefined,
-        department_id: dept.trim() || undefined,
-        project_stage: stage.trim() ? (stage as ProjectStageValue) : undefined,
-        project_status: status.trim() ? (status as ProjectStatusValue) : undefined,
-      })
-      setIsLoading(false)
-      if (result.success && result.data) {
-        setRows(result.data.projects)
-        setTotal(result.data.total)
-      } else {
-        showResultError(result, '加载失败')
+      try {
+        const result = await listProjects({
+          page: p,
+          pageSize,
+          keyword: kw.trim() || undefined,
+          department_id: dept.trim() || undefined,
+          project_stage: stage.trim() ? (stage as ProjectStageValue) : undefined,
+          project_status: status.trim() ? (status as ProjectStatusValue) : undefined,
+        })
+        if (seq !== listRequestSeqRef.current) return
+        if (result.success && result.data) {
+          setRows(result.data.projects)
+          setTotal(result.data.total)
+        } else {
+          showResultError(result, '加载失败')
+        }
+      } catch (error) {
+        if (seq === listRequestSeqRef.current) {
+          showErrorToast({ title: '加载失败', error })
+        }
+      } finally {
+        if (seq === listRequestSeqRef.current) {
+          setIsLoading(false)
+        }
       }
     },
     [pageSize]
@@ -125,6 +132,24 @@ export default function ProjectTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize, fetchPage, departmentId, projectStage, projectStatus])
 
+  const skipFirstKeyword = useRef(true)
+  useEffect(() => {
+    if (skipFirstKeyword.current) {
+      skipFirstKeyword.current = false
+      return
+    }
+    const timer = window.setTimeout(() => {
+      if (page !== 1) {
+        setPage(1)
+        return
+      }
+      void fetchPage(1, keyword, departmentId, projectStage, projectStatus)
+    }, 300)
+    return () => window.clearTimeout(timer)
+    // 只让关键词输入触发防抖刷新；下拉筛选仍走上面的筛选 effect。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword])
+
   const handleSearch = () => {
     setPage(1)
     void fetchPage(1, keyword, departmentId, projectStage, projectStatus)
@@ -132,139 +157,96 @@ export default function ProjectTable({
 
   const downloadCsv = async () => {
     setIsExporting(true)
-    const result = await exportProjectsCsv({
-      keyword: keyword.trim() || undefined,
-      department_id: departmentId.trim() || undefined,
-      project_stage: projectStage.trim() ? (projectStage as ProjectStageValue) : undefined,
-      project_status: projectStatus.trim() ? (projectStatus as ProjectStatusValue) : undefined,
-    })
-    setIsExporting(false)
-    if (!result.success) {
-      showResultError(result, '导出失败')
-      return
+    try {
+      const result = await exportProjectsCsv({
+        keyword: keyword.trim() || undefined,
+        department_id: departmentId.trim() || undefined,
+        project_stage: projectStage.trim() ? (projectStage as ProjectStageValue) : undefined,
+        project_status: projectStatus.trim() ? (projectStatus as ProjectStatusValue) : undefined,
+      })
+      if (!result.success) {
+        showResultError(result, '导出失败')
+        return
+      }
+      const blob = new Blob([result.data.csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = result.data.filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      showErrorToast({ title: '导出失败', error })
+    } finally {
+      setIsExporting(false)
     }
-    const blob = new Blob([result.data.csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = result.data.filename
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   const totalPages = Math.ceil(total / pageSize)
 
   return (
     <div className="space-y-4">
-      <AdminTableToolbar
-        keyword={keyword}
-        onKeywordChange={setKeyword}
-        onSearch={handleSearch}
-        searchPlaceholder="编号、名称、合同号"
-        isLoading={isLoading}
-        filters={
-          <>
-            <DepartmentTreeSelect
-              departments={departments}
-              value={departmentId}
-              onChange={(id) => {
-                setDepartmentId(id)
-                setPage(1)
-              }}
-              placeholder="全部部门"
-              emptyOptionLabel="全部部门"
-              size="sm"
-              variant="bordered"
-              className="w-[260px]"
-            />
-            <Select
-              aria-label="项目阶段筛选"
-              placeholder="全部阶段"
-              selectedKeys={projectStage ? new Set([projectStage]) : new Set(['__all__'])}
-              onSelectionChange={(keys) => {
-                if (keys === 'all') return
-                const next = String(Array.from(keys)[0] ?? '')
-                setProjectStage(next === '__all__' ? '' : next)
-                setPage(1)
-              }}
-              size="sm"
-              variant="bordered"
-              className="w-[140px]"
-            >
-              {[
-                { key: '__all__', label: '全部阶段' },
-                ...PROJECT_STAGE_VALUES.map((value) => ({
-                  key: value,
-                  label: PROJECT_STAGE_LABEL[value],
-                })),
-              ].map((option) => (
-                <SelectItem key={option.key}>{option.label}</SelectItem>
-              ))}
-            </Select>
-            <Select
-              aria-label="项目状态筛选"
-              placeholder="全部状态"
-              selectedKeys={projectStatus ? new Set([projectStatus]) : new Set(['__all__'])}
-              onSelectionChange={(keys) => {
-                if (keys === 'all') return
-                const next = String(Array.from(keys)[0] ?? '')
-                setProjectStatus(next === '__all__' ? '' : next)
-                setPage(1)
-              }}
-              size="sm"
-              variant="bordered"
-              className="w-[140px]"
-            >
-              {[
-                { key: '__all__', label: '全部状态' },
-                ...PROJECT_STATUS_VALUES.map((value) => ({
-                  key: value,
-                  label: PROJECT_STATUS_LABEL[value],
-                })),
-              ].map((option) => (
-                <SelectItem key={option.key}>{option.label}</SelectItem>
-              ))}
-            </Select>
-          </>
-        }
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="flat"
-              color="primary"
-              isLoading={isExporting}
-              startContent={
-                !isExporting && <Icon icon="lucide:download" className="size-4" aria-hidden />
-              }
-              onPress={() => void downloadCsv()}
-            >
-              导出 CSV
-            </Button>
-            <Dropdown>
-              <DropdownTrigger>
-                <Button
-                  color="secondary"
-                  variant="flat"
-                  size="sm"
-                  startContent={<Icon icon="lucide:file-up" className="size-4" aria-hidden />}
-                >
-                  批量导入
-                </Button>
-              </DropdownTrigger>
-              <DropdownMenu aria-label="批量导入">
-                <DropdownItem
-                  key="deliverables"
-                  as={Link}
-                  href="/admin/projects/import/deliverables"
-                >
-                  成果清单
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
-          </div>
-        }
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <ProjectListFilters
+          departments={departments}
+          departmentId={departmentId}
+          keyword={keyword}
+          projectStage={projectStage}
+          projectStatus={projectStatus}
+          isDisabled={isLoading}
+          onKeywordChange={setKeyword}
+          onKeywordSubmit={handleSearch}
+          onDepartmentChange={(id) => {
+            setDepartmentId(id)
+            setPage(1)
+          }}
+          onProjectStageChange={(stage) => {
+            setProjectStage(stage)
+            setPage(1)
+          }}
+          onProjectStatusChange={(status) => {
+            setProjectStatus(status)
+            setPage(1)
+          }}
+          className="flex-1"
+        />
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="flat"
+            color="primary"
+            isLoading={isExporting}
+            startContent={
+              !isExporting && <Icon icon="lucide:download" className="size-4" aria-hidden />
+            }
+            onPress={() => void downloadCsv()}
+          >
+            导出 CSV
+          </Button>
+          <Dropdown>
+            <DropdownTrigger>
+              <Button
+                color="secondary"
+                variant="flat"
+                size="sm"
+                startContent={<Icon icon="lucide:file-up" className="size-4" aria-hidden />}
+              >
+                批量导入
+              </Button>
+            </DropdownTrigger>
+            <DropdownMenu aria-label="批量导入">
+              <DropdownItem
+                key="deliverables"
+                as={Link}
+                href="/admin/projects/import/deliverables"
+              >
+                成果清单
+              </DropdownItem>
+            </DropdownMenu>
+          </Dropdown>
+        </div>
+      </div>
 
       <Table
         aria-label="项目列表"

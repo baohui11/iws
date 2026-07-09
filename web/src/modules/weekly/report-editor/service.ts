@@ -2,6 +2,7 @@ import { requireUser } from '@/core/auth'
 import { ValidationError } from '@/core/errors'
 import { isWeeklyReportEditableStatus } from '@/constants/weekly-report-status'
 import { isNowAfterWeekDeadline } from '@/modules/weekly/lib/week-deadline'
+import type { ProjectStageValue } from '@/constants/project-stage'
 import { nextWeekRangeAfterWeekEnd } from '@/modules/weekly/lib/week-report-dates'
 import {
   everySlotInRange,
@@ -10,10 +11,7 @@ import {
   type WeekHalfSlot,
 } from '@/modules/weekly/lib/weekly-report-work-slots'
 import { isProjectWeekExempt } from '../exemptions/repo'
-import {
-  getPmProjectIdsForUser,
-  projectHasPm,
-} from '../reports/repo'
+import { getPmProjectIdsForUser } from '../reports/repo'
 import {
   applyWeeklyReportApprovalDb,
   deleteWeeklyReportItemDb,
@@ -23,7 +21,7 @@ import {
   getWeeklyReportApprovalByApprover,
   getWeeklyReportMetaForUserWeek,
   isUserProjectMember,
-  listDeliverableFilesForWeeklyPicker,
+  listWeeklyReportFilesForPicker,
   loadWeeklyReportDetail,
   loadWeeklyReportEditorPayload,
   upsertWeeklyReportItemDb,
@@ -33,12 +31,16 @@ import {
   deletePlanItemsDb,
   countPlanItemsDb,
   countWorkItemsDb,
+  deleteWeeklyReportDb,
+  isUserImplementationProjectManager,
+  withdrawWeeklyReportDb,
 } from './repo'
 import type { WeeklyReportItemType } from '../types'
 
 export async function loadEditor(input: {
   projectId: string
   weekCode: string
+  projectStage: ProjectStageValue
 }) {
   const user = await requireUser()
   if (await isProjectWeekExempt(input.projectId, input.weekCode)) {
@@ -47,7 +49,8 @@ export async function loadEditor(input: {
   const payload = await loadWeeklyReportEditorPayload(
     user.id,
     input.projectId,
-    input.weekCode
+    input.weekCode,
+    input.projectStage
   )
   if (!payload) {
     throw new ValidationError('无法加载周报或该周次已提交，不可编辑')
@@ -55,16 +58,22 @@ export async function loadEditor(input: {
   return payload
 }
 
-export async function loadDeliverablePicker(input: {
+export async function loadWeeklyReportFilePicker(input: {
   projectId: string
   weekStartDate: string
+  projectStage: ProjectStageValue
 }) {
   const user = await requireUser()
-  const ok = await isUserProjectMember(user.id, input.projectId)
-  if (!ok) throw new ValidationError('无权访问该项目')
-  return listDeliverableFilesForWeeklyPicker(
+  const ok = await isUserProjectMember(
+    user.id,
     input.projectId,
-    input.weekStartDate
+    input.projectStage
+  )
+  if (!ok) throw new ValidationError('无权访问该项目')
+  return listWeeklyReportFilesForPicker(
+    input.projectId,
+    input.weekStartDate,
+    input.projectStage
   )
 }
 
@@ -135,9 +144,11 @@ export async function upsertItem(input: {
   const uniq = [...new Set(input.file_ids)]
   const okFiles = await verifyFilesLinkableToWeeklyItem(
     uniq,
-    report.project_id
+    report.project_id,
+    report.project_stage,
+    week.start_date
   )
-  if (!okFiles) throw new ValidationError('关联文件无效或不属于本项目成果')
+  if (!okFiles) throw new ValidationError('关联文件无效或不符合本周报阶段')
 
   const { id } = await upsertWeeklyReportItemDb({
     reportId: input.reportId,
@@ -180,12 +191,14 @@ export async function loadDetail(reportId: string) {
 export async function getMetaForUserWeek(input: {
   projectId: string
   weekCode: string
+  projectStage: ProjectStageValue
 }) {
   const user = await requireUser()
   return getWeeklyReportMetaForUserWeek(
     user.id,
     input.projectId,
-    input.weekCode
+    input.weekCode,
+    input.projectStage
   )
 }
 
@@ -226,8 +239,13 @@ export async function submitForApproval(input: {
     throw new ValidationError('请至少填写并保存一条本周工作内容后再提交')
   }
 
-  const hasPm = await projectHasPm(report.project_id)
-  const nextStatus = hasPm ? 'pending' : 'approved'
+  const isImplementationPm =
+    report.project_stage === '实施阶段' &&
+    (await isUserImplementationProjectManager(user.id, report.project_id))
+  const nextStatus =
+    report.project_stage === '实施阶段' && !isImplementationPm
+      ? 'pending'
+      : 'approved'
 
   const ok = await submitWeeklyReportDb({
     reportId: input.reportId,
@@ -286,4 +304,45 @@ export async function submitApprovalDecision(input: {
   if (!applied) {
     throw new ValidationError('审批失败，该周报可能已被处理，请刷新后重试')
   }
+}
+
+export async function withdrawReport(input: { reportId: string }) {
+  const user = await requireUser()
+  const report = await getReportForEdit(input.reportId)
+  if (!report) throw new ValidationError('周报不存在')
+  if (report.user_id !== user.id) {
+    throw new ValidationError('无权撤回该周报')
+  }
+  if (report.status !== 'pending' && report.status !== 'approved') {
+    throw new ValidationError('仅已提交或已通过的周报可撤回')
+  }
+
+  const since = new Date()
+  since.setDate(since.getDate() - 28)
+  const ok = await withdrawWeeklyReportDb({
+    reportId: input.reportId,
+    userId: user.id,
+    since,
+  })
+  if (!ok) {
+    throw new ValidationError('仅允许撤回提交后 4 周内的周报')
+  }
+}
+
+export async function deleteReport(input: { reportId: string }) {
+  const user = await requireUser()
+  const report = await getReportForEdit(input.reportId)
+  if (!report) throw new ValidationError('周报不存在')
+  if (report.user_id !== user.id) {
+    throw new ValidationError('无权删除该周报')
+  }
+  if (report.status !== 'draft' && report.status !== 'withdrawn') {
+    throw new ValidationError('仅草稿和已撤回的周报可以删除')
+  }
+
+  const ok = await deleteWeeklyReportDb({
+    reportId: input.reportId,
+    userId: user.id,
+  })
+  if (!ok) throw new ValidationError('删除失败，请刷新后重试')
 }

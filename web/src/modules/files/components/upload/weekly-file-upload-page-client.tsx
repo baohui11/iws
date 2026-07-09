@@ -18,28 +18,50 @@ import type {
 } from '@/modules/files/types'
 import WeeklyDeliverableUploadPanel from '@/modules/files/components/upload/weekly-deliverable-upload-panel'
 import WeeklyReferenceUploadPanel from '@/modules/files/components/upload/weekly-reference-upload-panel'
+import ProjectSearchSelect from '@/modules/projects/components/project-search-select'
+import {
+  PROJECT_STAGE_IMPLEMENTATION,
+  PROJECT_STAGE_LABEL,
+  PROJECT_STAGE_SALES,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
 
 export interface WeeklyFileUploadPageClientProps {
   initialProjects: MemberActiveProjectOption[]
   maxFileLabel: string
   /** 从周报等入口带入，预选项目 */
   initialProjectId?: string
+  initialProjectStage?: ProjectStageValue
   /** 上传完成后可回到的页面（如周报填写） */
   returnToHref?: string
+  linkTargetKey?: string
 }
 
 export default function WeeklyFileUploadPageClient({
   initialProjects,
   maxFileLabel,
   initialProjectId,
+  initialProjectStage,
   returnToHref,
+  linkTargetKey,
 }: WeeklyFileUploadPageClientProps) {
   const [projectId, setProjectId] = useState(initialProjectId ?? '')
+  const initialProject = initialProjects.find((p) => p.id === initialProjectId)
+  const initialStages = initialProject?.available_project_stages ?? []
+  const [projectStage, setProjectStage] = useState<ProjectStageValue>(
+    initialProjectStage && initialStages.includes(initialProjectStage)
+      ? initialProjectStage
+      : (initialStages[0] ?? PROJECT_STAGE_IMPLEMENTATION)
+  )
   const [options, setOptions] = useState<FileUploadOptionsPayload | null>(null)
   const [optionsLoading, setOptionsLoading] = useState(false)
 
   const loadOptions = useCallback(
-    async (pid: string, opts: { keepPrevious?: boolean } = {}) => {
+    async (
+      pid: string,
+      stage: ProjectStageValue,
+      opts: { keepPrevious?: boolean } = {}
+    ) => {
       const { keepPrevious = false } = opts
       if (!pid) {
         setOptions(null)
@@ -47,7 +69,7 @@ export default function WeeklyFileUploadPageClient({
       }
       setOptionsLoading(true)
       if (!keepPrevious) setOptions(null)
-      const result = await loadFileUploadOptions(pid)
+      const result = await loadFileUploadOptions(pid, stage)
       setOptionsLoading(false)
       if (result.success) {
         setOptions(result.data)
@@ -64,17 +86,18 @@ export default function WeeklyFileUploadPageClient({
   useEffect(() => {
     // 选中项目变化时按需拉取上传选项（外部数据同步）
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadOptions(projectId, { keepPrevious: false })
-  }, [projectId, loadOptions])
+    void loadOptions(projectId, projectStage, { keepPrevious: false })
+  }, [projectId, projectStage, loadOptions])
 
   const onRefreshOptions = useCallback(() => {
-    if (projectId) void loadOptions(projectId, { keepPrevious: true })
-  }, [projectId, loadOptions])
+    if (projectId) void loadOptions(projectId, projectStage, { keepPrevious: true })
+  }, [projectId, projectStage, loadOptions])
 
-  const projectItems = initialProjects.map((p) => ({
-    key: p.id,
-    label: p.project_name?.trim() || p.project_no || p.id,
-  }))
+  const selectedProject = initialProjects.find((p) => p.id === projectId)
+  const stageOptions =
+    selectedProject?.available_project_stages.length
+      ? selectedProject.available_project_stages
+      : [PROJECT_STAGE_IMPLEMENTATION]
 
   return (
     <div className="space-y-8">
@@ -92,24 +115,35 @@ export default function WeeklyFileUploadPageClient({
         </div>
       ) : null}
       <div className="space-y-2">
-        <Select
-          label="项目"
-          placeholder="选择项目"
-          variant="bordered"
+        <ProjectSearchSelect
+          projects={initialProjects}
+          value={projectId}
           className="w-full max-w-xl"
-          items={projectItems}
-          selectedKeys={projectId ? new Set([projectId]) : new Set()}
-          onSelectionChange={(keys) => {
-            const k = [...keys][0] as string | undefined
-            setProjectId(k ?? '')
+          onChange={(id, project) => {
+            setProjectId(id)
+            setProjectStage(
+              project?.available_project_stages[0] ?? PROJECT_STAGE_IMPLEMENTATION
+            )
           }}
           isDisabled={optionsLoading && !options}
+        />
+        <Select
+          label="阶段"
+          placeholder="选择阶段"
+          variant="bordered"
+          className="w-full max-w-xl"
+          selectedKeys={new Set([projectStage])}
+          isDisabled={!projectId || optionsLoading || stageOptions.length === 1}
+          onSelectionChange={(keys) => {
+            const k = [...keys][0] as ProjectStageValue | undefined
+            if (k) setProjectStage(k)
+          }}
         >
-          {(item) => (
-            <SelectItem key={item.key} textValue={item.label}>
-              {item.label}
+          {stageOptions.map((stage) => (
+            <SelectItem key={stage} textValue={PROJECT_STAGE_LABEL[stage]}>
+              {PROJECT_STAGE_LABEL[stage]}
             </SelectItem>
-          )}
+          ))}
         </Select>
         <p className="text-xs text-default-400">单文件最大 {maxFileLabel}</p>
       </div>
@@ -123,25 +157,41 @@ export default function WeeklyFileUploadPageClient({
       ) : !options ? (
         <p className="text-center text-sm text-danger">项目选项加载失败，请重试或切换项目</p>
       ) : (
-        <Tabs aria-label="上传类型" color="primary" variant="underlined" classNames={{ panel: 'pt-4' }}>
-          <Tab key="d" title="成果文件">
-            <WeeklyDeliverableUploadPanel
-              projectId={projectId}
-              deliverables={options.deliverables}
-              existingDeliverableFiles={options.existingDeliverableFiles}
-              referenceFiles={options.referenceFiles}
-              optionsLoading={optionsLoading}
-              onRefreshOptions={onRefreshOptions}
-            />
-          </Tab>
-          <Tab key="r" title="参考资料">
-            <WeeklyReferenceUploadPanel
-              projectId={projectId}
-              optionsLoading={optionsLoading}
-              onRefreshOptions={onRefreshOptions}
-            />
-          </Tab>
-        </Tabs>
+        projectStage === PROJECT_STAGE_SALES ? (
+          <WeeklyReferenceUploadPanel
+            projectId={projectId}
+            projectStage={projectStage}
+            salesMode
+            optionsLoading={optionsLoading}
+            onRefreshOptions={onRefreshOptions}
+            returnToHref={returnToHref}
+            linkTargetKey={linkTargetKey}
+          />
+        ) : (
+          <Tabs aria-label="上传类型" color="primary" variant="underlined" classNames={{ panel: 'pt-4' }}>
+            <Tab key="d" title="成果文件">
+              <WeeklyDeliverableUploadPanel
+                projectId={projectId}
+                projectStage={projectStage}
+                deliverables={options.deliverables}
+                existingDeliverableFiles={options.existingDeliverableFiles}
+                referenceFiles={options.referenceFiles}
+                optionsLoading={optionsLoading}
+                onRefreshOptions={onRefreshOptions}
+                returnToHref={returnToHref}
+                linkTargetKey={linkTargetKey}
+              />
+            </Tab>
+            <Tab key="r" title="参考资料">
+              <WeeklyReferenceUploadPanel
+                projectId={projectId}
+                projectStage={projectStage}
+                optionsLoading={optionsLoading}
+                onRefreshOptions={onRefreshOptions}
+              />
+            </Tab>
+          </Tabs>
+        )
       )}
     </div>
   )

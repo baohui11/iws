@@ -16,6 +16,12 @@ import {
   getWeekOptionsUpToCurrent,
 } from '@/modules/weekly/reports/repo'
 import { formatWeekCodeLabelZh } from '@/modules/weekly/lib/iso-week'
+import {
+  PROJECT_STAGE_IMPLEMENTATION,
+  PROJECT_STAGE_SALES,
+  parseProjectStage,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -31,8 +37,31 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
     typeof sp.projectId === 'string' ? sp.projectId : undefined
   const weekCode =
     typeof sp.weekCode === 'string' ? sp.weekCode : undefined
+  const projectStageParam =
+    typeof sp.projectStage === 'string' ? parseProjectStage(sp.projectStage) : null
+  const stayInPicker = sp.pick === '1'
+  const linkedFileId =
+    typeof sp.linkedFileId === 'string' ? sp.linkedFileId : undefined
+  const linkedFileName =
+    typeof sp.linkedFileName === 'string' ? sp.linkedFileName : undefined
+  const linkTargetKey =
+    typeof sp.linkTargetKey === 'string' ? sp.linkTargetKey : undefined
 
-  if (projectId && weekCode) {
+  const selectedProject = projectId
+    ? projects.find((p) => p.id === projectId)
+    : null
+  const defaultStage = selectedProject?.project_stage ?? PROJECT_STAGE_IMPLEMENTATION
+  const memberStages = selectedProject?.available_project_stages ?? []
+  const stageOptions: ProjectStageValue[] = memberStages.length
+    ? memberStages
+    : defaultStage === PROJECT_STAGE_SALES
+      ? [PROJECT_STAGE_SALES]
+      : [PROJECT_STAGE_IMPLEMENTATION, PROJECT_STAGE_SALES]
+  const projectStage = projectStageParam && stageOptions.includes(projectStageParam)
+    ? projectStageParam
+    : stageOptions[0]
+
+  if (projectId && weekCode && selectedProject && !stayInPicker) {
     if (await isProjectWeekExempt(projectId, weekCode)) {
       const projectName =
         projects.find((p) => p.id === projectId)?.project_name ?? null
@@ -47,7 +76,8 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
     const meta = await getWeeklyReportMetaForUserWeek(
       user.id,
       projectId,
-      weekCode
+      weekCode,
+      projectStage
     )
     if (meta && !isWeeklyReportEditableStatus(meta.status)) {
       redirect(`/weekly/reports/${meta.id}`)
@@ -56,17 +86,27 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
     const payload = await loadWeeklyReportEditorPayload(
       user.id,
       projectId,
-      weekCode
+      weekCode,
+      projectStage
     )
     if (!payload) notFound()
 
-    const returnToHref = `/weekly/reports/new?projectId=${encodeURIComponent(projectId)}&weekCode=${encodeURIComponent(weekCode)}`
+    const returnToHref = `/weekly/reports/new?projectId=${encodeURIComponent(projectId)}&weekCode=${encodeURIComponent(weekCode)}&projectStage=${encodeURIComponent(projectStage)}`
 
     return (
       <div className="container mx-auto max-w-3xl px-4 py-6 sm:py-8">
         <WeeklyReportFillForm
           initialPayload={payload}
           returnToHref={returnToHref}
+          initialLinkedFile={
+            linkedFileId && linkedFileName && linkTargetKey
+              ? {
+                  id: linkedFileId,
+                  file_name: linkedFileName,
+                  target_key: linkTargetKey,
+                }
+              : null
+          }
         />
       </div>
     )
@@ -83,6 +123,9 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
         <WeeklyReportScopePicker
           projects={projects}
           weekOptions={weekOptions}
+          initialProjectId={selectedProject?.id}
+          initialWeekCode={weekCode}
+          initialProjectStage={projectStage}
         />
       )}
     </div>

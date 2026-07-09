@@ -400,23 +400,6 @@ export default function FileSearchPageClient({
                   >
                     更多过滤
                   </Button>
-                  <Button
-                    as={Link}
-                    href="/files/mine"
-                    variant="light"
-                    color="primary"
-                    size="sm"
-                    className="shrink-0 font-medium"
-                    startContent={
-                      <Icon
-                        icon="lucide:folder-open"
-                        className="size-4 shrink-0"
-                        aria-hidden
-                      />
-                    }
-                  >
-                    我的文件
-                  </Button>
                 </div>
 
                 {moreFiltersOpen ? (

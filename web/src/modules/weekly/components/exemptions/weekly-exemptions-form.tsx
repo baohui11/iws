@@ -1,12 +1,10 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { showResultError } from '@/core/client/errors'
 import {
   Button,
-  Select,
-  SelectItem,
   Table,
   TableHeader,
   TableBody,
@@ -15,6 +13,8 @@ import {
   TableCell,
   addToast,
 } from '@heroui/react'
+import ProjectSearchSelect from '@/modules/projects/components/project-search-select'
+import WeekSearchSelect from '@/components/common/week-search-select'
 import {
   addPmExemptionAction,
   removePmExemptionAction,
@@ -47,24 +47,6 @@ export default function WeeklyExemptionsForm({
   const [isPending, startTransition] = useTransition()
   const [projectId, setProjectId] = useState<string>('')
   const [weekCode, setWeekCode] = useState<string>('')
-
-  const projectItems = useMemo(
-    () =>
-      projects.map((p) => ({
-        key: p.id,
-        label: p.project_name?.trim() || '—',
-      })),
-    [projects]
-  )
-
-  const weekItems = useMemo(
-    () =>
-      weekOptions.map((w) => ({
-        key: w.week_code,
-        label: `${w.title_zh}${w.is_current ? ' · 本周' : ''}${w.range_line ? `（${w.range_line}）` : ''}`,
-      })),
-    [weekOptions]
-  )
 
   const handleSubmit = () => {
     if (!projectId) {
@@ -113,47 +95,23 @@ export default function WeeklyExemptionsForm({
         </p>
 
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_auto] sm:items-end">
-          <Select
-            label="项目"
-            placeholder="选择项目"
+          <ProjectSearchSelect
+            projects={projects}
+            value={projectId}
+            onChange={(id) => setProjectId(id)}
             size="sm"
-            variant="bordered"
             className="w-full"
-            items={projectItems}
-            selectedKeys={projectId ? new Set([projectId]) : new Set()}
-            onSelectionChange={(keys) => {
-              const k = [...keys][0] as string | undefined
-              setProjectId(k ?? '')
-            }}
             isDisabled={isPending || projects.length === 0}
-          >
-            {(item) => (
-              <SelectItem key={item.key} textValue={item.label}>
-                {item.label}
-              </SelectItem>
-            )}
-          </Select>
+          />
 
-          <Select
-            label="周次"
-            placeholder="选择周次"
+          <WeekSearchSelect
+            weekOptions={weekOptions}
+            value={weekCode}
+            onChange={(code) => setWeekCode(code)}
             size="sm"
-            variant="bordered"
             className="w-full"
-            items={weekItems}
-            selectedKeys={weekCode ? new Set([weekCode]) : new Set()}
-            onSelectionChange={(keys) => {
-              const k = [...keys][0] as string | undefined
-              setWeekCode(k ?? '')
-            }}
-            isDisabled={isPending || weekItems.length === 0}
-          >
-            {(item) => (
-              <SelectItem key={item.key} textValue={item.label}>
-                {item.label}
-              </SelectItem>
-            )}
-          </Select>
+            isDisabled={isPending || weekOptions.length === 0}
+          />
 
           <Button
             color="primary"

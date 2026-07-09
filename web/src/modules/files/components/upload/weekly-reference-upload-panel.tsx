@@ -1,7 +1,16 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Button, Progress, Tooltip, addToast } from '@heroui/react'
+import { useRouter } from 'next/navigation'
+import {
+  Button,
+  Input,
+  Progress,
+  Select,
+  SelectItem,
+  Tooltip,
+  addToast,
+} from '@heroui/react'
 import { Icon } from '@iconify/react'
 import {
   beginReferenceFileUploadAction,
@@ -20,6 +29,9 @@ import {
 import { fileExtLower } from '@/modules/files/lib/safe-upload-filename'
 import { formatFileSize } from '@/modules/files/lib/format-file-size'
 import { randomClientId } from '@/core/random-client-id'
+import type { ProjectStageValue } from '@/constants/project-stage'
+import { PROJECT_STAGE_SALES } from '@/constants/project-stage'
+import { SALES_FILE_TAG_OPTIONS } from '@/constants/sales-file-tags'
 
 /** 参考资料来源（不含「原件」） */
 type RefSource = Exclude<FileSourceValue, 'original'>
@@ -44,16 +56,22 @@ const FILE_INPUT_ACCEPT = getProjectFileUploadAcceptAttribute()
 
 export interface WeeklyReferenceUploadPanelProps {
   projectId: string
+  projectStage: ProjectStageValue
+  salesMode?: boolean
   optionsLoading: boolean
   onRefreshOptions: () => void
   /** 批量上传中每成功一个文件时回调（用于关联弹窗等场景自动勾选） */
   onEachUploadSuccess?: (fileId: string) => void
+  returnToHref?: string
+  linkTargetKey?: string
 }
 
 type QueueItem = {
   id: string
   file: File
   fileSource: RefSource
+  salesFileTag: string
+  salesFileTagOther: string
   isConfidential: boolean
   recommend: boolean
   favorite: boolean
@@ -61,14 +79,22 @@ type QueueItem = {
 
 export default function WeeklyReferenceUploadPanel({
   projectId,
+  projectStage,
+  salesMode = false,
   optionsLoading,
   onRefreshOptions,
   onEachUploadSuccess,
+  returnToHref,
+  linkTargetKey,
 }: WeeklyReferenceUploadPanelProps) {
+  const router = useRouter()
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStepLabel, setUploadStepLabel] = useState('')
+  const [invalidTagIds, setInvalidTagIds] = useState<Set<string>>(
+    () => new Set()
+  )
   const inputRef = useRef<HTMLInputElement>(null)
 
   const updateItem = (
@@ -77,9 +103,18 @@ export default function WeeklyReferenceUploadPanel({
       Pick<
         QueueItem,
         'isConfidential' | 'fileSource' | 'recommend' | 'favorite'
+        | 'salesFileTag' | 'salesFileTagOther'
       >
     >
   ) => {
+    if ('salesFileTag' in patch || 'salesFileTagOther' in patch) {
+      setInvalidTagIds((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
     setQueue((prev) =>
       prev.map((it) => (it.id === id ? { ...it, ...patch } : it))
     )
@@ -112,11 +147,20 @@ export default function WeeklyReferenceUploadPanel({
         color: 'warning',
       })
     }
-    if (!ok.length) return
+    if (!ok.length) {
+      addToast({
+        title: '没有可上传的文件',
+        description: PROJECT_FILE_ALLOWED_EXT_HINT,
+        color: 'warning',
+      })
+      return
+    }
     const added: QueueItem[] = ok.map((file) => ({
       id: randomClientId(),
       file,
       fileSource: 'internal',
+      salesFileTag: '',
+      salesFileTagOther: '',
       isConfidential: false,
       recommend: false,
       favorite: false,
@@ -131,6 +175,23 @@ export default function WeeklyReferenceUploadPanel({
     }
 
     const snapshot = [...queue]
+    if (salesMode && projectStage === PROJECT_STAGE_SALES) {
+      const invalidItems = snapshot.filter((item) => {
+        if (item.salesFileTag === '其他') return !item.salesFileTagOther.trim()
+        return !item.salesFileTag.trim()
+      })
+      if (invalidItems.length) {
+        setInvalidTagIds(new Set(invalidItems.map((item) => item.id)))
+        showErrorToast({
+          title: '请完善销售资料标签',
+          message:
+            invalidItems.length === 1
+              ? `文件「${invalidItems[0].file.name}」还没有选择标签`
+              : `有 ${invalidItems.length} 个文件还没有选择标签`,
+        })
+        return
+      }
+    }
     const total = snapshot.length
     setUploading(true)
     setUploadProgress(0)
@@ -141,8 +202,27 @@ export default function WeeklyReferenceUploadPanel({
       setUploadProgress(Math.round((i / total) * 100))
 
       const item = snapshot[i]
+      const salesFileTag =
+        salesMode && projectStage === PROJECT_STAGE_SALES
+          ? item.salesFileTag === '其他'
+            ? item.salesFileTagOther.trim()
+            : item.salesFileTag.trim()
+          : null
+      if (salesMode && !salesFileTag) {
+        setInvalidTagIds(new Set([item.id]))
+        showErrorToast({
+          title: '请选择销售资料标签',
+          message: `文件「${item.file.name}」还没有选择标签`,
+        })
+        setQueue(snapshot.slice(i))
+        setUploadProgress(Math.round((i / total) * 100))
+        setUploading(false)
+        setUploadStepLabel('')
+        return
+      }
       const begin = await beginReferenceFileUploadAction({
         projectId,
+        projectStage,
         fileName: item.file.name,
         fileSize: item.file.size,
         mimeType: item.file.type,
@@ -150,6 +230,7 @@ export default function WeeklyReferenceUploadPanel({
         isConfidential: item.isConfidential,
         recommend: item.recommend,
         favorite: item.favorite,
+        salesFileTag,
       })
       if (!begin.success) {
         showResultError(begin, `${item.file.name} 上传失败`)
@@ -197,7 +278,21 @@ export default function WeeklyReferenceUploadPanel({
         typeof result.data === 'object' &&
         'id' in result.data
       ) {
-        onEachUploadSuccess?.((result.data as { id: string }).id)
+        const fileId = (result.data as { id: string }).id
+        onEachUploadSuccess?.(fileId)
+        if (
+          salesMode &&
+          projectStage === PROJECT_STAGE_SALES &&
+          returnToHref &&
+          linkTargetKey
+        ) {
+          const url = new URL(returnToHref, window.location.origin)
+          url.searchParams.set('linkedFileId', fileId)
+          url.searchParams.set('linkedFileName', item.file.name)
+          url.searchParams.set('linkTargetKey', linkTargetKey)
+          router.push(`${url.pathname}${url.search}`)
+          return
+        }
       }
 
       setUploadProgress(Math.round(((i + 1) / total) * 100))
@@ -230,7 +325,7 @@ export default function WeeklyReferenceUploadPanel({
         />
         <Button
           variant="flat"
-          color="secondary"
+          color={salesMode ? 'primary' : 'secondary'}
           isDisabled={busy}
           startContent={<Icon icon="lucide:files" className="size-5" />}
           onPress={() => inputRef.current?.click()}
@@ -284,44 +379,89 @@ export default function WeeklyReferenceUploadPanel({
                   </div>
                 </div>
 
-                <div
-                  className="inline-flex shrink-0 items-center rounded-medium border border-default-200 bg-default-100/40 p-0.5"
-                  role="group"
-                  aria-label={`${item.file.name} 的文件来源`}
-                >
-                  {REFERENCE_SOURCE_OPTIONS.map((opt) => (
-                    <Tooltip
-                      key={opt.value}
-                      content={opt.label}
-                      placement="top"
-                      delay={200}
+                {salesMode ? (
+                  <div className="flex min-w-[220px] flex-col gap-2 max-md:w-full">
+                    <Select
+                      size="sm"
+                      aria-label="销售资料标签"
+                      placeholder="选择标签"
+                      variant="bordered"
+                      isInvalid={invalidTagIds.has(item.id)}
+                      errorMessage={
+                        invalidTagIds.has(item.id) ? '请选择标签' : undefined
+                      }
+                      selectedKeys={
+                        item.salesFileTag ? new Set([item.salesFileTag]) : new Set()
+                      }
+                      isDisabled={busy}
+                      onSelectionChange={(keys) => {
+                        const k = [...keys][0] as string | undefined
+                        updateItem(item.id, { salesFileTag: k ?? '' })
+                      }}
                     >
-                      <Button
-                        isIconOnly
+                      {[...SALES_FILE_TAG_OPTIONS, '其他'].map((tag) => (
+                        <SelectItem key={tag} textValue={tag}>
+                          {tag}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                    {item.salesFileTag === '其他' ? (
+                      <Input
                         size="sm"
-                        variant={
-                          item.fileSource === opt.value ? 'flat' : 'light'
+                        variant="bordered"
+                        placeholder="输入其他标签"
+                        value={item.salesFileTagOther}
+                        isInvalid={invalidTagIds.has(item.id)}
+                        errorMessage={
+                          invalidTagIds.has(item.id) ? '请填写其他标签' : undefined
                         }
-                        color={
-                          item.fileSource === opt.value ? 'primary' : 'default'
-                        }
-                        className="min-w-8"
                         isDisabled={busy}
-                        aria-label={opt.label}
-                        aria-pressed={item.fileSource === opt.value}
-                        onPress={() =>
-                          updateItem(item.id, { fileSource: opt.value })
+                        onValueChange={(value) =>
+                          updateItem(item.id, { salesFileTagOther: value })
                         }
+                      />
+                    ) : null}
+                  </div>
+                ) : (
+                  <div
+                    className="inline-flex shrink-0 items-center rounded-medium border border-default-200 bg-default-100/40 p-0.5"
+                    role="group"
+                    aria-label={`${item.file.name} 的文件来源`}
+                  >
+                    {REFERENCE_SOURCE_OPTIONS.map((opt) => (
+                      <Tooltip
+                        key={opt.value}
+                        content={opt.label}
+                        placement="top"
+                        delay={200}
                       >
-                        <Icon
-                          icon={SOURCE_ICON[opt.value]}
-                          className="size-4"
-                          aria-hidden
-                        />
-                      </Button>
-                    </Tooltip>
-                  ))}
-                </div>
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant={
+                            item.fileSource === opt.value ? 'flat' : 'light'
+                          }
+                          color={
+                            item.fileSource === opt.value ? 'primary' : 'default'
+                          }
+                          className="min-w-8"
+                          isDisabled={busy}
+                          aria-label={opt.label}
+                          aria-pressed={item.fileSource === opt.value}
+                          onPress={() =>
+                            updateItem(item.id, { fileSource: opt.value })
+                          }
+                        >
+                          <Icon
+                            icon={SOURCE_ICON[opt.value]}
+                            className="size-4"
+                            aria-hidden
+                          />
+                        </Button>
+                      </Tooltip>
+                    ))}
+                  </div>
+                )}
 
                 <Tooltip
                   content={CONFIDENTIAL_TOOLTIP}

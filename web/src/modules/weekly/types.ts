@@ -1,4 +1,5 @@
 import type { WeeklyReportStatus } from '@/constants/weekly-report-status'
+import type { ProjectStageValue } from '@/constants/project-stage'
 import type { WeekHalfSlot } from '@/modules/weekly/lib/weekly-report-work-slots'
 
 export type WeeklyReportItemType = 'work' | 'plan'
@@ -7,6 +8,8 @@ export interface MemberProjectOption {
   id: string
   project_no: string | null
   project_name: string | null
+  project_stage: ProjectStageValue | null
+  available_project_stages: ProjectStageValue[]
   department_id: string | null
   department_name: string | null
 }
@@ -24,11 +27,23 @@ export interface MyFilledReportRow {
   id: string
   project_id: string
   week_code: string
+  project_stage: ProjectStageValue
   status: WeeklyReportStatus
   project_name: string | null
   item_count: number
   total_work_hours: number
   work_days: number
+}
+
+export interface WeeklyDashboardRecentProject {
+  project_id: string
+  project_name: string | null
+  stages: ProjectStageValue[]
+  action_stage: ProjectStageValue | null
+  latest_week_code: string
+  latest_status: WeeklyReportStatus
+  can_create_report: boolean
+  can_upload_file: boolean
 }
 
 export type MyFilledGroupView = 'by_week' | 'by_project'
@@ -37,6 +52,7 @@ export interface PmApprovalListRow {
   id: string
   project_id: string
   week_code: string
+  project_stage: ProjectStageValue
   status: WeeklyReportStatus
   project_name: string | null
   author_name: string
@@ -166,6 +182,7 @@ export interface WeeklyReportEditorPayload {
     user_id: string
     project_id: string
     week_code: string
+    project_stage: ProjectStageValue
     is_overdue: boolean
   }
   week: WeeklyReportWeekBounds
@@ -183,6 +200,7 @@ export interface WeeklyReportDetailPayload {
     user_id: string
     project_id: string
     week_code: string
+    project_stage: ProjectStageValue
     submit_time: string | null
     created_at: string
     is_overdue: boolean
@@ -195,10 +213,13 @@ export interface WeeklyReportDetailPayload {
   reject_reason: string | null
 }
 
-export interface DeliverablePickRow {
+export interface WeeklyReportFilePickRow {
   id: string
   file_name: string
   created_at: string
   version_label: string | null
   is_latest: boolean
+  is_deliverable: boolean
+  sales_file_tag: string | null
+  file_source: string | null
 }

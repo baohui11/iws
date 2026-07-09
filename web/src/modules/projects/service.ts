@@ -77,8 +77,8 @@ export async function saveProjectDeliverables(input: {
 }) {
   const project = await getProject(input.project_id)
   if (!project) throw new NotFoundError('项目不存在')
-  await syncContractDeliverables(input.project_id, input.items)
-  return { project_id: input.project_id }
+  const deliverables = await syncContractDeliverables(input.project_id, input.items)
+  return { project_id: input.project_id, deliverables }
 }
 
 interface ImportResult<T> {

@@ -4,7 +4,10 @@ import SubpageHeader from '@/components/common/subpage-header'
 import WeeklyProjectsList from '@/modules/weekly/components/projects/weekly-projects-list'
 import { WEEKLY_PROJECTS_PAGE_SIZE } from '@/constants/weekly-projects-space'
 import { requireUser } from '@/core/auth'
-import { getDepartmentTree } from '@/modules/org/departments/repo'
+import {
+  getAdminDepartmentScopeIds,
+  getDepartmentTree,
+} from '@/modules/org/departments/repo'
 import { getMyWeeklyProjectsList } from '@/modules/weekly/projects/repo'
 import { parseWeeklyProjectsSearchParamsFromRecord } from '@/modules/weekly/lib/weekly-projects-url'
 
@@ -17,19 +20,25 @@ export default async function WeeklyProjectsPage({ searchParams }: PageProps) {
 
   const sp = await searchParams
   const urlState = parseWeeklyProjectsSearchParamsFromRecord(sp)
+  const canSwitchScope = user.role != null && user.role !== 'user'
+  const listState = canSwitchScope ? urlState : { ...urlState, mine: true }
+  const allowedDepartmentIds = canSwitchScope
+    ? await getAdminDepartmentScopeIds(user)
+    : null
 
   const [departments, listResult] = await Promise.all([
-    getDepartmentTree(),
+    getDepartmentTree({ allowedDepartmentIds }),
     getMyWeeklyProjectsList({
       userId: user.id,
       role: user.role,
       userDepartmentId: user.departmentId,
       offset: 0,
       pageSize: WEEKLY_PROJECTS_PAGE_SIZE,
-      keyword: urlState.q.trim() || undefined,
-      departmentFilterId: urlState.dept.trim() || undefined,
-      projectStatusFilter: urlState.status.trim() || undefined,
-      onlyParticipating: urlState.mine,
+      keyword: listState.q.trim() || undefined,
+      departmentFilterId: listState.dept.trim() || undefined,
+      projectStageFilter: listState.stage.trim() || undefined,
+      projectStatusFilter: listState.status.trim() || undefined,
+      onlyParticipating: listState.mine,
     }),
   ])
 
@@ -43,7 +52,8 @@ export default async function WeeklyProjectsPage({ searchParams }: PageProps) {
             initialProjects={listResult.projects}
             initialTotal={listResult.total}
             departments={departments}
-            initialListState={urlState}
+            initialListState={listState}
+            canSwitchScope={canSwitchScope}
           />
         </Suspense>
       </div>

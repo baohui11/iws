@@ -2,7 +2,6 @@
 
 import { showResultError } from '@/core/client/errors'
 import {
-  Button,
   Spinner,
   Table,
   TableBody,
@@ -11,8 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@heroui/react'
-import { Icon } from '@iconify/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadMyAttendanceDetailsAction } from '@/modules/stats/actions'
 import type { AttendanceDetailRow } from '@/modules/stats/types'
 import { ExportCsvButton } from '@/modules/stats/components/shared/export-csv-button'
@@ -27,10 +25,13 @@ export default function MyAttendanceDetailsClient({
   const [yearMonth, setYearMonth] = useState(initialYearMonth)
   const [loading, setLoading] = useState(false)
   const [rows, setRows] = useState<AttendanceDetailRow[]>([])
+  const requestSeqRef = useRef(0)
 
-  const runQuery = useCallback(async () => {
+  const runQuery = useCallback(async (targetYearMonth: string) => {
+    const seq = ++requestSeqRef.current
     setLoading(true)
-    const result = await loadMyAttendanceDetailsAction(yearMonth)
+    const result = await loadMyAttendanceDetailsAction(targetYearMonth)
+    if (seq !== requestSeqRef.current) return
     setLoading(false)
     if (!result.success) {
       showResultError(result, '加载失败')
@@ -38,12 +39,14 @@ export default function MyAttendanceDetailsClient({
       return
     }
     setRows(result.data)
-  }, [yearMonth])
+  }, [])
 
   useEffect(() => {
-    void runQuery()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    const timer = window.setTimeout(() => {
+      void runQuery(yearMonth)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [runQuery, yearMonth])
 
   const csv = useMemo(() => {
     const headers = [
@@ -67,28 +70,10 @@ export default function MyAttendanceDetailsClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-lg border border-default-200/80 bg-default-50/50 p-3">
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
-          <StatsLabelField label="月份" className="sm:min-w-[min(100%,14rem)]">
-            <StatsYearMonthSelect value={yearMonth} onChange={setYearMonth} />
-          </StatsLabelField>
-
-          <div className="flex w-full justify-end sm:ml-auto sm:w-auto">
-            <Button
-              color="primary"
-              size="sm"
-              className="font-medium"
-              isLoading={loading}
-              startContent={<Icon icon="lucide:search" className="size-4" aria-hidden />}
-              onPress={() => void runQuery()}
-            >
-              查询
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <StatsLabelField label="月份" className="sm:w-56">
+          <StatsYearMonthSelect value={yearMonth} onChange={setYearMonth} />
+        </StatsLabelField>
         <ExportCsvButton
           filename={`我的考勤明细-${yearMonth}.csv`}
           headers={csv.headers}

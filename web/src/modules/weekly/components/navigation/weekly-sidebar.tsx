@@ -5,14 +5,24 @@ import { Link, cn } from "@heroui/react";
 
 export const weeklyNavItems = [
   {
-    label: "我的周报",
-    href: "/weekly/reports",
-    match: (p: string) => p.startsWith("/weekly/reports"),
+    label: "工作台",
+    href: "/weekly",
+    match: (p: string) => p === "/weekly",
   },
   {
     label: "我的项目",
     href: "/weekly/projects",
     match: (p: string) => p.startsWith("/weekly/projects"),
+  },
+  {
+    label: "我的周报",
+    href: "/weekly/reports",
+    match: (p: string) => p.startsWith("/weekly/reports"),
+  },
+  {
+    label: "我的文件",
+    href: "/weekly/files",
+    match: (p: string) => p === "/weekly/files" || p.startsWith("/weekly/files/"),
   },
   {
     label: "我的考勤",

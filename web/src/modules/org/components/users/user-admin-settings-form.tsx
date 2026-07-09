@@ -11,7 +11,7 @@ import {
   SYSTEM_ROLE_OPTIONS,
   type SystemRoleValue,
 } from '@/constants/system-roles'
-import { showResultError } from '@/core/client/errors'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 
 export default function UserAdminSettingsForm({ user }: { user: UserWithDepartment }) {
   const router = useRouter()
@@ -36,6 +36,8 @@ export default function UserAdminSettingsForm({ user }: { user: UserWithDepartme
       addToast({ title: '用户设置已保存', color: 'success', timeout: 1600 })
       router.push('/admin/users')
       router.refresh()
+    } catch (error) {
+      showErrorToast({ title: '保存失败', error })
     } finally {
       setIsSaving(false)
     }

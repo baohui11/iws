@@ -1,7 +1,7 @@
 'use client'
 
 import { Chip } from '@heroui/react'
-import SearchableMultiSelect from '@/modules/weekly/components/filters/searchable-multi-select'
+import SearchableMultiSelect from '@/components/common/searchable-multi-select'
 import type { WeekOption } from '@/modules/weekly/types'
 
 interface WeekMultiSelectProps {

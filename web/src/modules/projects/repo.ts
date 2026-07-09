@@ -10,6 +10,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import { getDb } from '@/core/db/client'
 import {
   contractDeliverables,
@@ -205,6 +206,7 @@ export async function getProjectList(
 
 export async function getProjectById(id: string): Promise<ProjectDetail | null> {
   const db = getDb()
+  const userDepartments = alias(departments, 'user_departments')
   const projRows = await db
     .select({
       id: projects.id,
@@ -240,9 +242,11 @@ export async function getProjectById(id: string): Promise<ProjectDetail | null> 
       is_active: projectMembers.isActive,
       user_name: users.name,
       user_email: users.email,
+      user_department_name: userDepartments.name,
     })
     .from(projectMembers)
     .leftJoin(users, eq(projectMembers.userId, users.id))
+    .leftJoin(userDepartments, eq(users.departmentId, userDepartments.id))
     .where(
       and(eq(projectMembers.projectId, id), isNull(projectMembers.deletedAt))
     )
@@ -288,7 +292,7 @@ export async function getProjectById(id: string): Promise<ProjectDetail | null> 
 export async function syncContractDeliverables(
   projectId: string,
   items: DeliverableInput[]
-) {
+): Promise<DeliverableRow[]> {
   const db = getDb()
   const normalized = items
     .filter((d) => d.name?.trim())
@@ -342,6 +346,22 @@ export async function syncContractDeliverables(
         )
     }
   }
+
+  const rows = await db
+    .select({
+      id: contractDeliverables.id,
+      name: contractDeliverables.name,
+      description: contractDeliverables.description,
+    })
+    .from(contractDeliverables)
+    .where(eq(contractDeliverables.projectId, projectId))
+    .orderBy(asc(contractDeliverables.createdAt))
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+  }))
 }
 
 export async function insertContractDeliverable(

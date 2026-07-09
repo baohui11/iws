@@ -11,27 +11,24 @@ import {
   TableRow,
   TableCell,
   Chip,
-  Switch,
-  Input,
   Button,
-  Select,
-  SelectItem,
-  Tooltip,
-  cn,
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { WEEKLY_PROJECTS_PAGE_SIZE } from '@/constants/weekly-projects-space'
-import { loadMyWeeklyProjectsAction } from '@/modules/weekly/projects/actions'
-import { showResultError } from '@/core/client/errors'
+import {
+  loadMyWeeklyProjectsAction,
+} from '@/modules/weekly/projects/actions'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import type { DepartmentNode } from '@/modules/org/departments/repo'
 import {
   PROJECT_STATUS_LABEL,
-  PROJECT_STATUS_VALUES,
 } from '@/constants/project-status'
+import { PROJECT_STAGE_LABEL } from '@/constants/project-stage'
 import {
   flattenDepartmentTree,
   formatDepartmentPathLabel,
 } from '@/modules/org/departments/display'
+import ProjectListFilters from '@/modules/projects/components/project-list-filters'
 import {
   buildWeeklyProjectDetailHref,
   buildWeeklyProjectsSearchParams,
@@ -39,29 +36,6 @@ import {
   type WeeklyProjectsUrlState,
 } from '@/modules/weekly/lib/weekly-projects-url'
 import type { WeeklyProjectListItem } from '@/modules/projects/types'
-
-/** 与 admin DepartmentTreeSelect / 原 WeeklyDepartmentSelect 一致：根 + 一层子部门 */
-function flattenDepartmentOptionsForWeekly(
-  departments: DepartmentNode[],
-  parentName?: string
-): Array<{ id: string; fullName: string }> {
-  const result: Array<{ id: string; fullName: string }> = []
-  for (const dept of departments) {
-    const fullName = parentName ? `${parentName} / ${dept.name}` : dept.name
-    result.push({ id: dept.id, fullName })
-    if (dept.children?.length) {
-      for (const child of dept.children) {
-        result.push({
-          id: child.id,
-          fullName: `${fullName} / ${child.name}`,
-        })
-      }
-    }
-  }
-  return result
-}
-
-type ViewMode = 'table' | 'cards'
 
 const STATUS_COLOR: Record<
   string,
@@ -80,6 +54,7 @@ interface WeeklyProjectsListProps {
   departments: DepartmentNode[]
   /** 与地址栏初始一致（服务端解析） */
   initialListState: WeeklyProjectsUrlState
+  canSwitchScope: boolean
 }
 
 function ProjectTableEntryIcon({ href }: { href: string }) {
@@ -94,83 +69,12 @@ function ProjectTableEntryIcon({ href }: { href: string }) {
   )
 }
 
-function ProjectCardEntryLink({ href }: { href: string }) {
-  return (
-    <Link
-      href={href}
-      className="group/entry inline-flex items-center gap-1.5 text-[13px] font-medium text-primary transition-opacity hover:opacity-90"
-    >
-      <span className="border-b border-transparent pb-px transition-[border-color] group-hover/entry:border-primary/55">
-        进入项目
-      </span>
-      <Icon
-        icon="lucide:arrow-up-right"
-        className="size-4 shrink-0 opacity-80 transition-[transform,opacity] group-hover/entry:translate-x-px group-hover/entry:-translate-y-px group-hover/entry:opacity-100"
-        aria-hidden
-      />
-    </Link>
-  )
-}
-
-function WeeklyProjectCard({
-  item,
-  deptLabel,
-  detailHref,
-}: {
-  item: WeeklyProjectListItem
-  deptLabel: string
-  detailHref: string
-}) {
-  return (
-    <div className="flex h-full flex-col rounded-2xl border border-default-200/90 bg-content1 p-5 transition-[border-color,background-color] hover:border-primary/30 hover:bg-content1">
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="line-clamp-2 min-w-0 flex-1 text-[15px] font-semibold leading-snug tracking-tight text-foreground">
-          {item.project_name ?? '—'}
-        </h3>
-        {item.project_status ? (
-          <Chip
-            size="sm"
-            variant="flat"
-            color={STATUS_COLOR[item.project_status] ?? 'default'}
-            className="h-6 shrink-0 px-2 text-xs"
-          >
-            {PROJECT_STATUS_LABEL[item.project_status] ?? item.project_status}
-          </Chip>
-        ) : null}
-      </div>
-
-      <p className="mt-2.5 font-mono text-[11px] tabular-nums text-default-400">
-        {item.project_no ?? '—'}
-      </p>
-
-      <div className="mt-3 flex min-h-[1.75rem] flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="min-w-0 flex-1 text-sm leading-relaxed text-default-500 line-clamp-2">
-          {deptLabel}
-        </span>
-        {item.is_participating ? (
-          <Chip
-            size="sm"
-            variant="flat"
-            color="primary"
-            className="h-6 shrink-0 px-2 text-xs"
-          >
-            {item.my_project_role ?? '成员'}
-          </Chip>
-        ) : null}
-      </div>
-
-      <div className="mt-auto border-t border-default-100 pt-4">
-        <ProjectCardEntryLink href={detailHref} />
-      </div>
-    </div>
-  )
-}
-
 export default function WeeklyProjectsList({
   initialProjects,
   initialTotal,
   departments,
   initialListState,
+  canSwitchScope,
 }: WeeklyProjectsListProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -180,13 +84,14 @@ export default function WeeklyProjectsList({
   const [total, setTotal] = useState(initialTotal)
   const [keyword, setKeyword] = useState(initialListState.q)
   const [departmentId, setDepartmentId] = useState(initialListState.dept)
+  const [stageFilter, setStageFilter] = useState(initialListState.stage)
   const [statusFilter, setStatusFilter] = useState(initialListState.status)
   const [onlyParticipating, setOnlyParticipating] = useState(initialListState.mine)
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>(initialListState.view)
 
   const loadingMoreRef = useRef(false)
+  const listRequestSeqRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
 
@@ -200,22 +105,40 @@ export default function WeeklyProjectsList({
   )
 
   const fetchFromStart = useCallback(
-    async (kw: string, dept: string, status: string, memberOnly: boolean) => {
+    async (
+      kw: string,
+      dept: string,
+      stage: string,
+      status: string,
+      memberOnly: boolean
+    ) => {
+      const seq = ++listRequestSeqRef.current
       setIsLoading(true)
-      const result = await loadMyWeeklyProjectsAction({
-        offset: 0,
-        pageSize: WEEKLY_PROJECTS_PAGE_SIZE,
-        keyword: kw.trim() || undefined,
-        departmentFilterId: dept.trim() || undefined,
-        projectStatusFilter: status.trim() || undefined,
-        onlyParticipating: memberOnly,
-      })
-      setIsLoading(false)
-      if (!result.success) {
-        showResultError(result, '加载失败')
-      } else if (result.data) {
-        setRows(result.data.projects)
-        setTotal(result.data.total)
+      try {
+        const result = await loadMyWeeklyProjectsAction({
+          offset: 0,
+          pageSize: WEEKLY_PROJECTS_PAGE_SIZE,
+          keyword: kw.trim() || undefined,
+          departmentFilterId: dept.trim() || undefined,
+          projectStageFilter: stage.trim() || undefined,
+          projectStatusFilter: status.trim() || undefined,
+          onlyParticipating: memberOnly,
+        })
+        if (seq !== listRequestSeqRef.current) return
+        if (!result.success) {
+          showResultError(result, '加载失败')
+        } else if (result.data) {
+          setRows(result.data.projects)
+          setTotal(result.data.total)
+        }
+      } catch (error) {
+        if (seq === listRequestSeqRef.current) {
+          showErrorToast({ title: '加载失败', error })
+        }
+      } finally {
+        if (seq === listRequestSeqRef.current) {
+          setIsLoading(false)
+        }
       }
     },
     []
@@ -226,25 +149,31 @@ export default function WeeklyProjectsList({
     if (rows.length >= total) return
     loadingMoreRef.current = true
     setLoadingMore(true)
-    const result = await loadMyWeeklyProjectsAction({
-      offset: rows.length,
-      pageSize: WEEKLY_PROJECTS_PAGE_SIZE,
-      keyword: keyword.trim() || undefined,
-      departmentFilterId: departmentId.trim() || undefined,
-      projectStatusFilter: statusFilter.trim() || undefined,
-      onlyParticipating,
-    })
-    loadingMoreRef.current = false
-    setLoadingMore(false)
-    if (!result.success) {
-      showResultError(result, '加载失败')
-    } else if (result.data) {
-      setRows((prev) => {
-        const seen = new Set(prev.map((r) => r.id))
-        const next = result.data.projects.filter((p) => !seen.has(p.id))
-        return [...prev, ...next]
+    try {
+      const result = await loadMyWeeklyProjectsAction({
+        offset: rows.length,
+        pageSize: WEEKLY_PROJECTS_PAGE_SIZE,
+        keyword: keyword.trim() || undefined,
+        departmentFilterId: departmentId.trim() || undefined,
+        projectStageFilter: stageFilter.trim() || undefined,
+        projectStatusFilter: statusFilter.trim() || undefined,
+        onlyParticipating,
       })
-      setTotal(result.data.total)
+      if (!result.success) {
+        showResultError(result, '加载失败')
+      } else if (result.data) {
+        setRows((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          const next = result.data.projects.filter((p) => !seen.has(p.id))
+          return [...prev, ...next]
+        })
+        setTotal(result.data.total)
+      }
+    } catch (error) {
+      showErrorToast({ title: '加载失败', error })
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
     }
   }, [
     departmentId,
@@ -252,6 +181,7 @@ export default function WeeklyProjectsList({
     keyword,
     onlyParticipating,
     rows.length,
+    stageFilter,
     statusFilter,
     total,
   ])
@@ -279,7 +209,6 @@ export default function WeeklyProjectsList({
     if (!root || isLoading || loadingMore || rows.length >= total) return
     if (root.scrollHeight > root.clientHeight + 8) return
     // 内容不满一屏时自动补页（哨兵驱动）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadMore()
   }, [isLoading, loadMore, loadingMore, rows.length, total])
 
@@ -306,14 +235,14 @@ export default function WeeklyProjectsList({
     }
     const parsed = parseWeeklyProjectsSearchParams(searchParams)
     // 浏览器前进/后退时按 URL 同步筛选态（外部 store 同步）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setViewMode(parsed.view)
     setKeyword(parsed.q)
     setDepartmentId(parsed.dept)
+    setStageFilter(parsed.stage)
     setStatusFilter(parsed.status)
-    setOnlyParticipating(parsed.mine)
-    void fetchFromStart(parsed.q, parsed.dept, parsed.status, parsed.mine)
-  }, [searchParamsKey, searchParams, fetchFromStart])
+    const mine = canSwitchScope ? parsed.mine : true
+    setOnlyParticipating(mine)
+    void fetchFromStart(parsed.q, parsed.dept, parsed.stage, parsed.status, mine)
+  }, [canSwitchScope, searchParamsKey, searchParams, fetchFromStart])
 
   const buildDetailHref = useCallback(
     (projectId: string) =>
@@ -321,250 +250,157 @@ export default function WeeklyProjectsList({
     [pathname, searchParams]
   )
 
-  const departmentOptions = useMemo(
-    () => flattenDepartmentOptionsForWeekly(departments),
-    [departments]
-  )
-
-  const departmentSelectItems = useMemo(
-    () => [
-      { key: 'all', label: '全部部门' },
-      ...departmentOptions.map((o) => ({
-        key: o.id,
-        label: o.fullName,
-      })),
-    ],
-    [departmentOptions]
-  )
-
-  const statusSelectItems = useMemo(
-    () => [
-      { key: 'all', label: '全部状态' },
-      ...PROJECT_STATUS_VALUES.map((v) => ({
-        key: v,
-        label: PROJECT_STATUS_LABEL[v],
-      })),
-    ],
-    []
-  )
-
   const handleSearch = () => {
     const next: WeeklyProjectsUrlState = {
-      view: viewMode,
       q: keyword,
       dept: departmentId,
+      stage: stageFilter,
       status: statusFilter,
       mine: onlyParticipating,
     }
     replaceListUrl(next)
-    void fetchFromStart(keyword, departmentId, statusFilter, onlyParticipating)
+    void fetchFromStart(
+      keyword,
+      departmentId,
+      stageFilter,
+      statusFilter,
+      onlyParticipating
+    )
   }
+
+  const skipFirstKeyword = useRef(true)
+  useEffect(() => {
+    if (skipFirstKeyword.current) {
+      skipFirstKeyword.current = false
+      return
+    }
+    const timer = window.setTimeout(() => {
+      handleSearch()
+    }, 300)
+    return () => window.clearTimeout(timer)
+    // 只让关键词输入触发防抖刷新；下拉和范围切换走各自的即时刷新。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword])
 
   const emptyMessage = isLoading ? '加载中…' : '暂无数据'
 
   return (
     <div className="space-y-6">
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <Input
-          placeholder="编号、名称、合同号"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          variant="bordered"
-          startContent={
-            <Icon icon="lucide:search" className="size-4 text-default-400" aria-hidden />
-          }
-          className="min-w-[180px] max-w-xs shrink-0"
-          size="sm"
-          classNames={{ inputWrapper: 'h-10 min-h-10' }}
+      <div className="flex min-w-0 flex-col gap-2 xl:flex-row xl:items-center">
+        <ProjectListFilters
+          className="flex-1"
+          departments={departments}
+          departmentId={departmentId}
+          keyword={keyword}
+          projectStage={stageFilter}
+          projectStatus={statusFilter}
+          isDisabled={isLoading}
+          onKeywordChange={setKeyword}
+          onKeywordSubmit={handleSearch}
+          onDepartmentChange={(id) => {
+            const next: WeeklyProjectsUrlState = {
+              q: keyword,
+              dept: id,
+              stage: stageFilter,
+              status: statusFilter,
+              mine: onlyParticipating,
+            }
+            setDepartmentId(id)
+            replaceListUrl(next)
+            void fetchFromStart(
+              keyword,
+              id,
+              stageFilter,
+              statusFilter,
+              onlyParticipating
+            )
+          }}
+          onProjectStageChange={(stage) => {
+            const next: WeeklyProjectsUrlState = {
+              q: keyword,
+              dept: departmentId,
+              stage,
+              status: statusFilter,
+              mine: onlyParticipating,
+            }
+            setStageFilter(stage)
+            replaceListUrl(next)
+            void fetchFromStart(
+              keyword,
+              departmentId,
+              stage,
+              statusFilter,
+              onlyParticipating
+            )
+          }}
+          onProjectStatusChange={(s) => {
+            const next: WeeklyProjectsUrlState = {
+              q: keyword,
+              dept: departmentId,
+              stage: stageFilter,
+              status: s,
+              mine: onlyParticipating,
+            }
+            setStatusFilter(s)
+            replaceListUrl(next)
+            void fetchFromStart(
+              keyword,
+              departmentId,
+              stageFilter,
+              s,
+              onlyParticipating
+            )
+          }}
         />
 
-        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-2">
-          <Select
-            placeholder="部门"
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {canSwitchScope ? (
+          <div className="flex h-10 shrink-0 overflow-hidden rounded-medium border border-default-200 bg-default-50/80 p-0.5">
+            {[
+              { key: true, label: '我参与' },
+              { key: false, label: '可查看' },
+            ].map((option) => (
+              <Button
+                key={String(option.key)}
+                size="sm"
+                variant={onlyParticipating === option.key ? 'solid' : 'light'}
+                color={onlyParticipating === option.key ? 'primary' : 'default'}
+                className="h-8 rounded-small px-3"
+                onPress={() => {
+                  const v = option.key
+                  const next: WeeklyProjectsUrlState = {
+                    q: keyword,
+                    dept: departmentId,
+                    stage: stageFilter,
+                    status: statusFilter,
+                    mine: v,
+                  }
+                  setOnlyParticipating(v)
+                  replaceListUrl(next)
+                  void fetchFromStart(
+                    keyword,
+                    departmentId,
+                    stageFilter,
+                    statusFilter,
+                    v
+                  )
+                }}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          ) : null}
+          <Button
+            as={Link}
+            href="/weekly/projects/add"
+            color="primary"
             size="sm"
-            variant="bordered"
-            className="w-full min-w-0 max-w-full"
-            classNames={{
-              base: 'w-full min-w-0 max-w-full',
-              mainWrapper: 'w-full min-w-0',
-              trigger: 'h-10 min-h-10 w-full min-w-0',
-            }}
-            items={departmentSelectItems}
-            selectedKeys={
-              departmentId.trim()
-                ? new Set([departmentId])
-                : new Set(['all'])
-            }
-            onSelectionChange={(keys) => {
-              const k = [...keys][0] as string | undefined
-              if (!k) return
-              const id = k === 'all' ? '' : k
-              const next: WeeklyProjectsUrlState = {
-                view: viewMode,
-                q: keyword,
-                dept: id,
-                status: statusFilter,
-                mine: onlyParticipating,
-              }
-              setDepartmentId(id)
-              replaceListUrl(next)
-              void fetchFromStart(keyword, id, statusFilter, onlyParticipating)
-            }}
-            isDisabled={isLoading}
-            aria-label="部门"
+            className="font-medium"
+            startContent={<Icon icon="lucide:plus" className="size-4" aria-hidden />}
           >
-            {(item) => (
-              <SelectItem key={item.key} textValue={item.label}>
-                {item.label}
-              </SelectItem>
-            )}
-          </Select>
-
-          <Select
-            placeholder="项目状态"
-            size="sm"
-            variant="bordered"
-            className="w-full min-w-0 max-w-full"
-            classNames={{
-              base: 'w-full min-w-0 max-w-full',
-              mainWrapper: 'w-full min-w-0',
-              trigger: 'h-10 min-h-10 w-full min-w-0',
-            }}
-            items={statusSelectItems}
-            selectedKeys={
-              statusFilter.trim()
-                ? new Set([statusFilter])
-                : new Set(['all'])
-            }
-            onSelectionChange={(keys) => {
-              const k = [...keys][0] as string | undefined
-              if (!k) return
-              const s = k === 'all' ? '' : k
-              const next: WeeklyProjectsUrlState = {
-                view: viewMode,
-                q: keyword,
-                dept: departmentId,
-                status: s,
-                mine: onlyParticipating,
-              }
-              setStatusFilter(s)
-              replaceListUrl(next)
-              void fetchFromStart(keyword, departmentId, s, onlyParticipating)
-            }}
-            isDisabled={isLoading}
-            aria-label="项目状态"
-          >
-            {(item) => (
-              <SelectItem key={item.key} textValue={item.label}>
-                {item.label}
-              </SelectItem>
-            )}
-          </Select>
-        </div>
-
-        <Button
-          color="primary"
-          size="sm"
-          onPress={handleSearch}
-          isLoading={isLoading}
-          startContent={
-            !isLoading && <Icon icon="lucide:search" className="size-4" aria-hidden />
-          }
-        >
-          搜索
-        </Button>
-
-        <Tooltip content="仅展示我参与的项目" delay={200} placement="top">
-          <Switch
-            size="sm"
-            isSelected={onlyParticipating}
-            onValueChange={(v) => {
-              const next: WeeklyProjectsUrlState = {
-                view: viewMode,
-                q: keyword,
-                dept: departmentId,
-                status: statusFilter,
-                mine: v,
-              }
-              setOnlyParticipating(v)
-              replaceListUrl(next)
-              void fetchFromStart(keyword, departmentId, statusFilter, v)
-            }}
-          >
-            仅我参与
-          </Switch>
-        </Tooltip>
-
-        <div
-          className="ml-auto flex h-10 shrink-0 items-center gap-0 self-center overflow-hidden rounded-medium border border-default-200 bg-default-50/80 p-0 dark:bg-default-100/10"
-          role="group"
-          aria-label="展示形式"
-        >
-          <Tooltip content="卡片视图" delay={200} placement="top">
-            <Button
-              size="sm"
-              isIconOnly
-              variant={viewMode === 'cards' ? 'solid' : 'light'}
-              color={viewMode === 'cards' ? 'primary' : 'default'}
-              className="h-10 min-h-10 min-w-10 rounded-none"
-              aria-label="卡片视图"
-              onPress={() => {
-                const next: WeeklyProjectsUrlState = {
-                  view: 'cards',
-                  q: keyword,
-                  dept: departmentId,
-                  status: statusFilter,
-                  mine: onlyParticipating,
-                }
-                setViewMode('cards')
-                replaceListUrl(next)
-              }}
-            >
-              <Icon
-                icon="lucide:layout-grid"
-                className={cn(
-                  'size-4',
-                  viewMode === 'cards'
-                    ? 'text-primary-foreground'
-                    : 'text-default-500'
-                )}
-                aria-hidden
-              />
-            </Button>
-          </Tooltip>
-          <Tooltip content="表格视图" delay={200} placement="top">
-            <Button
-              size="sm"
-              isIconOnly
-              variant={viewMode === 'table' ? 'solid' : 'light'}
-              color={viewMode === 'table' ? 'primary' : 'default'}
-              className="h-10 min-h-10 min-w-10 rounded-none"
-              aria-label="表格视图"
-              onPress={() => {
-                const next: WeeklyProjectsUrlState = {
-                  view: 'table',
-                  q: keyword,
-                  dept: departmentId,
-                  status: statusFilter,
-                  mine: onlyParticipating,
-                }
-                setViewMode('table')
-                replaceListUrl(next)
-              }}
-            >
-              <Icon
-                icon="lucide:table"
-                className={cn(
-                  'size-4',
-                  viewMode === 'table'
-                    ? 'text-primary-foreground'
-                    : 'text-default-500'
-                )}
-                aria-hidden
-              />
-            </Button>
-          </Tooltip>
+            添加项目
+          </Button>
         </div>
       </div>
 
@@ -582,7 +418,6 @@ export default function WeeklyProjectsList({
         ref={scrollRef}
         className="max-h-[min(70vh,720px)] overflow-y-auto overflow-x-hidden pr-0.5"
       >
-      {viewMode === 'table' ? (
         <Table
           aria-label="我的项目"
           classNames={{ wrapper: 'overflow-x-auto' }}
@@ -591,6 +426,7 @@ export default function WeeklyProjectsList({
             <TableColumn>项目编号</TableColumn>
             <TableColumn>项目名称</TableColumn>
             <TableColumn>部门</TableColumn>
+            <TableColumn>可填阶段</TableColumn>
             <TableColumn>状态</TableColumn>
             <TableColumn>项目角色</TableColumn>
             <TableColumn align="end">操作</TableColumn>
@@ -607,6 +443,26 @@ export default function WeeklyProjectsList({
                     item.department_id,
                     flatDepartments,
                     item.department_name
+                  )}
+                </TableCell>
+                <TableCell>
+                  {item.is_participating && item.my_project_stages.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {item.my_project_stages.map((stage) => (
+                        <Chip
+                          key={stage}
+                          size="sm"
+                          variant="flat"
+                          color={stage === '实施阶段' ? 'primary' : 'warning'}
+                        >
+                          {PROJECT_STAGE_LABEL[
+                            stage as keyof typeof PROJECT_STAGE_LABEL
+                          ] ?? stage}
+                        </Chip>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-default-400">—</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -643,22 +499,6 @@ export default function WeeklyProjectsList({
             ))}
           </TableBody>
         </Table>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map((item) => (
-            <WeeklyProjectCard
-              key={item.id}
-              item={item}
-              deptLabel={formatDepartmentPathLabel(
-                item.department_id,
-                flatDepartments,
-                item.department_name
-              )}
-              detailHref={buildDetailHref(item.id)}
-            />
-          ))}
-        </div>
-      )}
 
       {loadingMore ? (
         <div className="flex items-center justify-center gap-2 py-3 text-xs text-default-500">

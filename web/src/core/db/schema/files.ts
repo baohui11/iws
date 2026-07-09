@@ -17,6 +17,7 @@ import {
   filePipelineStatus,
   fileProcessStage,
   fileSourceType,
+  projectStage,
 } from './enums'
 import { projects, contractDeliverables } from './projects'
 import { users } from './org'
@@ -53,6 +54,8 @@ export const files = pgTable(
     contractDeliverableId: uuid().references(() => contractDeliverables.id, {
       onDelete: 'set null',
     }),
+    projectStage: projectStage().default('实施阶段').notNull(),
+    salesFileTag: text(),
     fileSource: fileSourceType(),
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

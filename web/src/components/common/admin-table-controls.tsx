@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, Input, Pagination } from '@heroui/react'
+import { Input, Pagination } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import type { ReactNode } from 'react'
 
@@ -9,7 +9,6 @@ interface AdminTableToolbarProps {
   onKeywordChange: (value: string) => void
   onSearch: () => void
   searchPlaceholder: string
-  isLoading?: boolean
   filters?: ReactNode
   actions?: ReactNode
 }
@@ -19,7 +18,6 @@ export function AdminTableToolbar({
   onKeywordChange,
   onSearch,
   searchPlaceholder,
-  isLoading,
   filters,
   actions,
 }: AdminTableToolbarProps) {
@@ -37,17 +35,6 @@ export function AdminTableToolbar({
         size="sm"
       />
       {filters}
-      <Button
-        color="primary"
-        size="sm"
-        onPress={onSearch}
-        isLoading={isLoading}
-        startContent={
-          !isLoading && <Icon icon="lucide:search" className="size-4" aria-hidden />
-        }
-      >
-        搜索
-      </Button>
       <div className="flex-1" />
       {actions}
     </div>

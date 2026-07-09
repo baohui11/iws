@@ -1,4 +1,5 @@
 import type { ProjectFileTypeCategory } from '@/modules/files/lib/project-file-type-category'
+import type { ProjectStageValue } from '@/constants/project-stage'
 
 /** Excel 解析预览（Python xlsx 等写入的 JSON，结构可扩展） */
 
@@ -96,6 +97,7 @@ export interface MemberActiveProjectOption {
   id: string
   project_no: string | null
   project_name: string | null
+  available_project_stages: ProjectStageValue[]
 }
 
 export interface ContractDeliverableOption {
@@ -201,6 +203,8 @@ export interface ProjectFileListRow {
   is_confidential: boolean
   is_deliverable: boolean
   contract_deliverable_id: string | null
+  project_stage: ProjectStageValue
+  sales_file_tag: string | null
   file_source: string | null
   is_latest: boolean
 }
@@ -209,6 +213,7 @@ export type ProjectFilesScope = 'all' | 'deliverable' | 'reference'
 
 export interface ListProjectFilesFilters {
   scope: ProjectFilesScope
+  projectStage?: ProjectStageValue
   /** 成果：仅关联合同清单项 */
   contractDeliverOnly?: boolean
   /** 成果：仅最新版本 */
@@ -246,16 +251,19 @@ export interface FileRowPreview {
   uploader_name: string
 }
 
-export type FilesMineTab = 'uploads' | 'favorites' | 'recommends'
-
 /** 我的文件列表每页条数（与滚动加载一致） */
 export const MINE_FILES_PAGE_SIZE = 20
 
 export interface MineFileRow {
   file_id: string
   file_name: string
+  project_id: string
   project_name: string | null
-  /** 列表排序用：上传取文件创建时间；收藏/推荐取互动时间 */
+  project_stage: ProjectStageValue
+  is_deliverable: boolean
+  file_source: string | null
+  sales_file_tag: string | null
+  /** 列表排序用：文件创建时间 */
   sort_at: string
 }
 
@@ -278,6 +286,8 @@ export interface InsertDeliverableFileInput {
   versionLabel: string
   /** 非合同成果时为 null */
   contractDeliverableId: string | null
+  projectStage: ProjectStageValue
+  salesFileTag: string | null
   fileSource: string
   isConfidential: boolean
 }
@@ -291,6 +301,8 @@ export interface InsertReferenceFileInput {
   mimeType: string | null
   sourceStorageKey: string
   uploaderId: string
+  projectStage: ProjectStageValue
+  salesFileTag: string | null
   fileSource: string
   isConfidential: boolean
 }

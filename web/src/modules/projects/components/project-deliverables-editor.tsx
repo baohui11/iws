@@ -14,7 +14,7 @@ import {
 } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { randomClientId } from '@/core/random-client-id'
-import { showResultError } from '@/core/client/errors'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import { saveProjectDeliverables } from '@/modules/projects/actions'
 import type { DeliverableRow } from '@/modules/projects/types'
 
@@ -23,6 +23,22 @@ interface Row {
   id?: string
   name: string
   description: string
+}
+
+function withUiTimeout<T>(promise: Promise<T>, timeoutMs = 8000): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => resolve(null), timeoutMs)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        window.clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
 }
 
 export default function ProjectDeliverablesEditor({
@@ -58,22 +74,46 @@ export default function ProjectDeliverablesEditor({
 
   const save = async () => {
     setIsSaving(true)
-    const result = await saveProjectDeliverables({
-      project_id: projectId,
-      items: rows
-        .filter((row) => row.name.trim())
-        .map((row) => ({
+    try {
+      const result = await withUiTimeout(
+        saveProjectDeliverables({
+          project_id: projectId,
+          items: rows
+            .filter((row) => row.name.trim())
+            .map((row) => ({
+              id: row.id,
+              name: row.name.trim(),
+              description: row.description.trim() || null,
+            })),
+        })
+      )
+      if (result == null) {
+        addToast({
+          title: '保存请求已提交',
+          description: '服务器响应较慢，页面已恢复可编辑；刷新后可查看最终结果。',
+          color: 'warning',
+          timeout: 3000,
+        })
+        return
+      }
+      if (!result.success) {
+        showResultError(result, '保存失败')
+        return
+      }
+      setRows(
+        result.data.deliverables.map((row) => ({
+          key: row.id,
           id: row.id,
-          name: row.name.trim(),
-          description: row.description.trim() || null,
-        })),
-    })
-    setIsSaving(false)
-    if (!result.success) {
-      showResultError(result, '保存失败')
-      return
+          name: row.name,
+          description: row.description ?? '',
+        }))
+      )
+      addToast({ title: '成果清单已保存', color: 'success', timeout: 1600 })
+    } catch (error) {
+      showErrorToast({ title: '保存失败', error })
+    } finally {
+      setIsSaving(false)
     }
-    addToast({ title: '成果清单已保存', color: 'success', timeout: 1600 })
   }
 
   return (

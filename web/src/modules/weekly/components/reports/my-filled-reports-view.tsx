@@ -6,8 +6,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Button, Chip, Tooltip, cn } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { loadMyFilledReportsAction } from '@/modules/weekly/reports/actions'
+import { deleteWeeklyReportAction } from '@/modules/weekly/report-editor/actions'
 import { showResultError } from '@/core/client/errors'
-import ProjectHerouiMultiSelect from '@/modules/weekly/components/filters/project-heroui-multi-select'
+import ConfirmActionModal from '@/components/common/confirm-action-modal'
+import ProjectSearchSelect from '@/modules/projects/components/project-search-select'
 import WeekRangeSelects from '@/modules/weekly/components/filters/week-range-selects'
 import { WEEKLY_REPORTS_PAGE_SIZE } from '@/constants/weekly-reports-list'
 import type {
@@ -94,14 +96,13 @@ export default function MyFilledReportsView({
       ? initialUrlState.weekTo
       : defaultWeekRange.weekTo
   )
-  const [projectKeys, setProjectKeys] = useState(
-    () =>
-      new Set(
-        initialUrlState.hasProjectsInUrl ? initialUrlState.projects : []
-      )
+  const [projectId, setProjectId] = useState(
+    () => (initialUrlState.hasProjectsInUrl ? (initialUrlState.projects[0] ?? '') : '')
   )
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MyFilledReportRow | null>(null)
 
   const skipEffect = useRef(false)
   const firstEffect = useRef(true)
@@ -162,8 +163,8 @@ export default function MyFilledReportsView({
       weekFrom,
       weekTo,
       hasWeekRangeInUrl: true,
-      projects: [...projectKeys],
-      hasProjectsInUrl: projectKeys.size > 0,
+      projects: projectId ? [projectId] : [],
+      hasProjectsInUrl: Boolean(projectId),
     }
     const { weekCodes, projectIds } = buildFetchPayload(state)
     const result = await loadMyFilledReportsAction({
@@ -185,7 +186,7 @@ export default function MyFilledReportsView({
     }
   }, [
     buildFetchPayload,
-    projectKeys,
+    projectId,
     isLoading,
     pageSize,
     rows.length,
@@ -236,7 +237,7 @@ export default function MyFilledReportsView({
     setView(next.view)
     setWeekFrom(next.weekFrom)
     setWeekTo(next.weekTo)
-    setProjectKeys(new Set(next.projects))
+    setProjectId(next.projects[0] ?? '')
     replaceUrl(next)
     void fetchData(next)
   }
@@ -264,9 +265,7 @@ export default function MyFilledReportsView({
     setWeekTo(
       parsed.hasWeekRangeInUrl && parsed.weekTo ? parsed.weekTo : dr.weekTo
     )
-    setProjectKeys(
-      new Set(parsed.hasProjectsInUrl ? parsed.projects : [])
-    )
+    setProjectId(parsed.hasProjectsInUrl ? (parsed.projects[0] ?? '') : '')
     void fetchData({
       view: parsed.view,
       weekFrom:
@@ -284,6 +283,24 @@ export default function MyFilledReportsView({
   const byWeek = useMemo(() => groupByWeek(rows), [rows])
   const byProject = useMemo(() => groupByProject(rows), [rows])
 
+  const canDeleteReport = (status: MyFilledReportRow['status']) =>
+    status === 'draft' || status === 'withdrawn'
+
+  const deleteReport = async () => {
+    if (deletingId || !deleteTarget) return
+    const reportId = deleteTarget.id
+    setDeletingId(reportId)
+    const result = await deleteWeeklyReportAction({ reportId })
+    setDeletingId(null)
+    if (!result.success) {
+      showResultError(result, '删除失败')
+      return
+    }
+    setRows((current) => current.filter((row) => row.id !== reportId))
+    setTotal((current) => Math.max(0, current - 1))
+    setDeleteTarget(null)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex min-w-0 w-full flex-nowrap items-center gap-2">
@@ -298,27 +315,34 @@ export default function MyFilledReportsView({
                 weekFrom: wf,
                 weekTo: wt,
                 hasWeekRangeInUrl: true,
-                projects: [...projectKeys],
-                hasProjectsInUrl: projectKeys.size > 0,
+                projects: projectId ? [projectId] : [],
+                hasProjectsInUrl: Boolean(projectId),
               })
             }
-            isDisabled={isLoading}
+            isDisabled={memberProjects.length === 0}
             wrapperClassName="contents"
+            selectClassName="w-[15.5rem] min-w-[15.5rem] max-w-[15.5rem] shrink-0"
           />
-          <ProjectHerouiMultiSelect
+          <ProjectSearchSelect
             projects={memberProjects}
-            selectedKeys={projectKeys}
-            onSelectionChange={(keys) =>
+            value={projectId}
+            onChange={(nextProjectId) =>
               apply({
                 view,
                 weekFrom,
                 weekTo,
                 hasWeekRangeInUrl: true,
-                projects: [...keys],
-                hasProjectsInUrl: keys.size > 0,
+                projects: nextProjectId ? [nextProjectId] : [],
+                hasProjectsInUrl: Boolean(nextProjectId),
               })
             }
             isDisabled={isLoading}
+            label=""
+            placeholder="全部项目"
+            emptyOptionLabel="全部项目"
+            size="sm"
+            variant="bordered"
+            className="w-[18rem] min-w-[18rem] max-w-[18rem] shrink-0"
           />
         </div>
 
@@ -341,8 +365,8 @@ export default function MyFilledReportsView({
                     weekFrom,
                     weekTo,
                     hasWeekRangeInUrl: true,
-                    projects: [...projectKeys],
-                    hasProjectsInUrl: projectKeys.size > 0,
+                    projects: projectId ? [projectId] : [],
+                    hasProjectsInUrl: Boolean(projectId),
                   })
                 }
               >
@@ -372,8 +396,8 @@ export default function MyFilledReportsView({
                     weekFrom,
                     weekTo,
                     hasWeekRangeInUrl: true,
-                    projects: [...projectKeys],
-                    hasProjectsInUrl: projectKeys.size > 0,
+                    projects: projectId ? [projectId] : [],
+                    hasProjectsInUrl: Boolean(projectId),
                   })
                 }
               >
@@ -475,6 +499,19 @@ export default function MyFilledReportsView({
                         >
                           查看
                         </Button>
+                        {canDeleteReport(r.status) ? (
+                          <Button
+                            size="sm"
+                            variant="light"
+                            color="danger"
+                            isIconOnly
+                            aria-label="删除周报"
+                            isLoading={deletingId === r.id}
+                            onPress={() => setDeleteTarget(r)}
+                          >
+                            <Icon icon="lucide:trash-2" className="size-4" />
+                          </Button>
+                        ) : null}
                       </div>
                     </li>
                   ))}
@@ -541,9 +578,9 @@ export default function MyFilledReportsView({
                             >
                               {WEEKLY_REPORT_STATUS_LABEL[r.status]}
                             </Chip>
-                            <Button
-                              as={Link}
-                              href={`/weekly/reports/${r.id}`}
+                        <Button
+                          as={Link}
+                          href={`/weekly/reports/${r.id}`}
                               size="sm"
                               variant="light"
                               color="primary"
@@ -554,11 +591,24 @@ export default function MyFilledReportsView({
                                   className="size-4"
                                 />
                               }
-                            >
-                              查看
-                            </Button>
-                          </div>
-                        </li>
+                        >
+                          查看
+                        </Button>
+                        {canDeleteReport(r.status) ? (
+                          <Button
+                            size="sm"
+                            variant="light"
+                            color="danger"
+                            isIconOnly
+                            aria-label="删除周报"
+                            isLoading={deletingId === r.id}
+                            onPress={() => setDeleteTarget(r)}
+                          >
+                            <Icon icon="lucide:trash-2" className="size-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </li>
                       )
                     })}
                 </ul>
@@ -585,6 +635,18 @@ export default function MyFilledReportsView({
           />
         </div>
       )}
+      <ConfirmActionModal
+        isOpen={deleteTarget !== null}
+        title="删除周报"
+        description="删除后该周报及其填写内容将不可恢复，请确认是否继续。"
+        confirmText="确认删除"
+        confirmColor="danger"
+        isLoading={deletingId !== null}
+        onClose={() => {
+          if (!deletingId) setDeleteTarget(null)
+        }}
+        onConfirm={() => void deleteReport()}
+      />
     </div>
   )
 }

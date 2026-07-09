@@ -1,11 +1,6 @@
 /** 我填写的周报：?view=&weekFrom=&weekTo=&projects=（旧 weeks= 仍可读） */
-/** 我审批的周报：?approval=&weeks=&projects= */
 
-import type {
-  ApprovalDoneFilter,
-  MemberProjectOption,
-  MyFilledGroupView,
-} from '@/modules/weekly/types'
+import type { MemberProjectOption, MyFilledGroupView } from '@/modules/weekly/types'
 import {
   compareWeekCode,
   getCurrentWeekCode,
@@ -20,13 +15,6 @@ export type WeeklyFilledUrlState = {
   hasWeekRangeInUrl: boolean
   projects: string[]
   hasProjectsInUrl: boolean
-}
-
-export type WeeklyApprovalsUrlState = {
-  approval: ApprovalDoneFilter
-  weeks: string[]
-  projects: string[]
-  hasWeeksInUrl: boolean
 }
 
 function firstString(v: string | string[] | undefined): string {
@@ -125,6 +113,47 @@ export function resolveEffectiveWeekCodes(
   return weekCodesFromUrl
 }
 
+export function getDefaultApprovalWeekRange(
+  weekOptions: { week_code: string }[]
+): { weekFrom: string; weekTo: string } {
+  const set = new Set(weekOptions.map((w) => w.week_code))
+  const cur = getCurrentWeekCode()
+  const end = set.has(cur) ? cur : (weekOptions[0]?.week_code ?? cur)
+  const prev = shiftWeekCode(end, -1)
+  const start = prev && set.has(prev) ? prev : end
+  return compareWeekCode(start, end) <= 0
+    ? { weekFrom: start, weekTo: end }
+    : { weekFrom: end, weekTo: start }
+}
+
+export function resolveApprovalWeekCodes(
+  weekOptions: { week_code: string }[],
+  state: { hasWeekRangeInUrl: boolean; weekFrom: string; weekTo: string }
+): string[] {
+  const optionSet = new Set(weekOptions.map((w) => w.week_code))
+  const defaults = getDefaultApprovalWeekRange(weekOptions)
+
+  let from = state.hasWeekRangeInUrl
+    ? state.weekFrom?.trim() || defaults.weekFrom
+    : defaults.weekFrom
+  let to = state.hasWeekRangeInUrl
+    ? state.weekTo?.trim() || defaults.weekTo
+    : defaults.weekTo
+
+  if (from && !optionSet.has(from)) from = defaults.weekFrom
+  if (to && !optionSet.has(to)) to = defaults.weekTo
+  if (!from || !to) return []
+
+  if (compareWeekCode(from, to) > 0) {
+    const t = from
+    from = to
+    to = t
+  }
+
+  const raw = weekCodesInclusiveRange(from, to)
+  return raw.filter((c) => optionSet.has(c))
+}
+
 export function parseWeeklyFilledSearchParams(
   sp: Record<string, string | string[] | undefined>
 ): WeeklyFilledUrlState {
@@ -182,45 +211,5 @@ export function buildWeeklyFilledSearchParams(
     if (state.projects.length) p.set('projects', state.projects.join(','))
     else p.set('projects', '')
   }
-  return p
-}
-
-export function parseWeeklyApprovalsSearchParams(
-  sp: Record<string, string | string[] | undefined>
-): WeeklyApprovalsUrlState {
-  const ar = firstString(sp.approval)
-  let approval: ApprovalDoneFilter = 'all'
-  if (ar === 'done') {
-    approval = 'approved'
-  } else if (
-    ar === 'all' ||
-    ar === 'pending' ||
-    ar === 'rejected' ||
-    ar === 'approved'
-  ) {
-    approval = ar
-  }
-  const hasWeeksInUrl = Object.prototype.hasOwnProperty.call(sp, 'weeks')
-  const weeks = hasWeeksInUrl ? parseCsv(firstString(sp.weeks)) : []
-  const projects = parseCsv(firstString(sp.projects))
-  return { approval, weeks, projects, hasWeeksInUrl }
-}
-
-export function parseWeeklyApprovalsSearchParamsFromSearchParams(
-  sp: URLSearchParams
-): WeeklyApprovalsUrlState {
-  return parseWeeklyApprovalsSearchParams(Object.fromEntries(sp.entries()))
-}
-
-export function buildWeeklyApprovalsSearchParams(
-  state: WeeklyApprovalsUrlState
-): URLSearchParams {
-  const p = new URLSearchParams()
-  if (state.approval !== 'all') p.set('approval', state.approval)
-  if (state.hasWeeksInUrl) {
-    if (state.weeks.length) p.set('weeks', state.weeks.join(','))
-    else p.set('weeks', '')
-  }
-  if (state.projects.length) p.set('projects', state.projects.join(','))
   return p
 }

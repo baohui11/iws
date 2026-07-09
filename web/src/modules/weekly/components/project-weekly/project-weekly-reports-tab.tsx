@@ -15,15 +15,18 @@ import type {
   ProjectWeeklyWeekGroup,
   ProjectWeeklyWeeksPage,
 } from '@/modules/weekly/types'
+import type { ProjectStageValue } from '@/constants/project-stage'
 
 interface ProjectWeeklyReportsTabProps {
   projectId: string
   initial: ProjectWeeklyWeeksPage
+  projectStage?: ProjectStageValue | null
 }
 
 export default function ProjectWeeklyReportsTab({
   projectId,
   initial,
+  projectStage,
 }: ProjectWeeklyReportsTabProps) {
   const [weeks, setWeeks] = useState<ProjectWeeklyWeekGroup[]>(initial.weeks)
   const [totalWeeks, setTotalWeeks] = useState(initial.totalWeeks)
@@ -44,7 +47,8 @@ export default function ProjectWeeklyReportsTab({
     const result = await loadProjectWeeklyWeeksAction(
       projectId,
       loadedWeekCount,
-      WEEKLY_PROJECT_WEEKS_PAGE_SIZE
+      WEEKLY_PROJECT_WEEKS_PAGE_SIZE,
+      projectStage
     )
     loadingMoreRef.current = false
     setLoadingMore(false)
@@ -58,7 +62,41 @@ export default function ProjectWeeklyReportsTab({
       })
       setTotalWeeks(result.data.totalWeeks)
     }
-  }, [hasMore, loadedWeekCount, projectId])
+  }, [hasMore, loadedWeekCount, projectId, projectStage])
+
+  useEffect(() => {
+    let cancelled = false
+    loadingMoreRef.current = true
+    queueMicrotask(() => {
+      if (!cancelled) setLoadingMore(true)
+    })
+    void loadProjectWeeklyWeeksAction(
+      projectId,
+      0,
+      WEEKLY_PROJECT_WEEKS_PAGE_SIZE,
+      projectStage
+    ).then(
+      (result) => {
+        if (cancelled) return
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+        if (!result.success) {
+          showResultError(result, '加载失败')
+          return
+        }
+        setWeeks(result.data.weeks)
+        setTotalWeeks(result.data.totalWeeks)
+      },
+      () => {
+        if (cancelled) return
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, projectStage])
 
   useEffect(() => {
     const root = scrollRef.current

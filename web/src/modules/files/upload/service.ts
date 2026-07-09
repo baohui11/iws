@@ -6,6 +6,13 @@ import { getDb } from '@/core/db/client'
 import { contractDeliverables, files, projectMembers, projects } from '@/core/db/schema'
 import { BusinessError, ValidationError } from '@/core/errors'
 import {
+  PROJECT_STAGE_IMPLEMENTATION,
+  PROJECT_STAGE_SALES,
+  parseProjectStage,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
+import { normalizeSalesFileTag } from '@/constants/sales-file-tags'
+import {
   formatMaxProjectFileLabel,
   getMaxProjectFileBytes,
   isAllowedProjectFileExtension,
@@ -43,6 +50,7 @@ const DIRECT_UPLOAD_URL_EXPIRES_SECONDS = 10 * 60
 
 export interface BeginReferenceFileUploadInput {
   projectId: string
+  projectStage: ProjectStageValue
   fileName: string
   fileSize: number
   mimeType?: string | null
@@ -50,10 +58,12 @@ export interface BeginReferenceFileUploadInput {
   isConfidential: boolean
   recommend: boolean
   favorite: boolean
+  salesFileTag?: string | null
 }
 
 export interface BeginDeliverableFileUploadInput {
   projectId: string
+  projectStage: ProjectStageValue
   fileName: string
   fileSize: number
   mimeType?: string | null
@@ -74,6 +84,7 @@ type DirectUploadTokenPayload =
       userId: string
       fileId: string
       projectId: string
+      projectStage: ProjectStageValue
       objectPath: string
       fileName: string
       fileSize: number
@@ -83,6 +94,7 @@ type DirectUploadTokenPayload =
       isConfidential: boolean
       recommend: boolean
       favorite: boolean
+      salesFileTag: string | null
     }
   | {
       purpose: 'project-file-upload'
@@ -90,6 +102,7 @@ type DirectUploadTokenPayload =
       userId: string
       fileId: string
       projectId: string
+      projectStage: ProjectStageValue
       objectPath: string
       fileName: string
       fileSize: number
@@ -146,6 +159,7 @@ async function verifyDirectUploadToken(
         userId: payload.userId,
         fileId: payload.fileId,
         projectId: payload.projectId,
+        projectStage: parseProjectStage(String(payload.projectStage)) ?? PROJECT_STAGE_IMPLEMENTATION,
         objectPath: payload.objectPath,
         fileName: payload.fileName,
         fileSize: payload.fileSize,
@@ -156,6 +170,8 @@ async function verifyDirectUploadToken(
         isConfidential: payload.isConfidential === true,
         recommend: payload.recommend === true,
         favorite: payload.favorite === true,
+        salesFileTag:
+          typeof payload.salesFileTag === 'string' ? payload.salesFileTag : null,
       }
     }
     if (payload.kind === 'deliverable') {
@@ -165,6 +181,7 @@ async function verifyDirectUploadToken(
         userId: payload.userId,
         fileId: payload.fileId,
         projectId: payload.projectId,
+        projectStage: parseProjectStage(String(payload.projectStage)) ?? PROJECT_STAGE_IMPLEMENTATION,
         objectPath: payload.objectPath,
         fileName: payload.fileName,
         fileSize: payload.fileSize,
@@ -229,9 +246,10 @@ async function assertUploadedObjectMatches(input: {
   }
 }
 
-async function assertMemberActiveProject(
+async function assertMemberActiveProjectStage(
   userId: string,
-  projectId: string
+  projectId: string,
+  projectStage: ProjectStageValue
 ): Promise<void> {
   const db = getDb()
   const memRows = await db
@@ -241,13 +259,14 @@ async function assertMemberActiveProject(
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectId, projectId),
+        eq(projectMembers.projectStage, projectStage),
         eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
     )
     .limit(1)
 
-  if (!memRows.length) throw new BusinessError('您不是该项目成员')
+  if (!memRows.length) throw new BusinessError('您不是该项目该阶段成员')
 
   const projRows = await db
     .select({ is_active: projects.isActive })
@@ -267,18 +286,23 @@ export async function loadMemberActiveProjectsForFileUpload() {
   return { projects }
 }
 
-export async function loadFileUploadOptions(projectId: string) {
+export async function loadFileUploadOptions(
+  projectId: string,
+  projectStage: ProjectStageValue
+) {
   const user = await requireUser()
   const pid = projectId?.trim()
   if (!pid) throw new ValidationError('请选择项目')
-  await assertMemberActiveProject(user.id, pid)
+  await repo.assertMemberActiveProjectStage(user.id, pid, projectStage)
 
   const [deliverables, existingDeliverableFiles, referenceFiles] =
-    await Promise.all([
-      repo.listContractDeliverablesForProject(pid),
-      repo.listExistingDeliverableFilesForProject(pid),
-      repo.listReferenceFilesForProject(pid),
-    ])
+    projectStage === PROJECT_STAGE_IMPLEMENTATION
+      ? await Promise.all([
+          repo.listContractDeliverablesForProject(pid),
+          repo.listExistingDeliverableFilesForProject(pid),
+          repo.listReferenceFilesForProject(pid, projectStage),
+        ])
+      : [[], [], []]
 
   const payload: FileUploadOptionsPayload = {
     deliverables,
@@ -294,7 +318,14 @@ export async function beginReferenceFileUpload(
   const user = await requireUser()
   const projectId = input.projectId?.trim()
   if (!projectId) throw new ValidationError('请选择项目')
-  await assertMemberActiveProject(user.id, projectId)
+  await assertMemberActiveProjectStage(user.id, projectId, input.projectStage)
+  const salesFileTag =
+    input.projectStage === PROJECT_STAGE_SALES
+      ? normalizeSalesFileTag(input.salesFileTag)
+      : null
+  if (input.projectStage === PROJECT_STAGE_SALES && !salesFileTag) {
+    throw new ValidationError('请选择或填写销售资料标签')
+  }
 
   const allowedSources: FileSourceValue[] = ['client', 'internal', 'public']
   if (!allowedSources.includes(input.fileSource)) {
@@ -308,7 +339,11 @@ export async function beginReferenceFileUpload(
   }
 
   const displayName = getBasenameOnly(input.fileName)
-  const dup = await repo.existsReferenceDuplicateName(projectId, displayName)
+  const dup = await repo.existsReferenceDuplicateName(
+    projectId,
+    displayName,
+    input.projectStage
+  )
   if (dup) {
     throw new BusinessError('该项目下已存在同名参考资料，请修改文件名后重试')
   }
@@ -327,6 +362,7 @@ export async function beginReferenceFileUpload(
     userId: user.id,
     fileId,
     projectId,
+    projectStage: input.projectStage,
     objectPath,
     fileName: displayName,
     fileSize,
@@ -336,6 +372,7 @@ export async function beginReferenceFileUpload(
     isConfidential: input.isConfidential,
     recommend: input.recommend,
     favorite: input.favorite,
+    salesFileTag,
   })
 
   return {
@@ -353,7 +390,7 @@ export async function completeReferenceFileUpload(uploadToken: string) {
   if (payload.kind !== 'reference') throw new ValidationError('上传类型不一致')
   if (payload.userId !== user.id) throw new ValidationError('上传用户不一致')
 
-  await assertMemberActiveProject(user.id, payload.projectId)
+  await assertMemberActiveProjectStage(user.id, payload.projectId, payload.projectStage)
   await assertUploadedObjectMatches({
     objectPath: payload.objectPath,
     fileSize: payload.fileSize,
@@ -361,7 +398,8 @@ export async function completeReferenceFileUpload(uploadToken: string) {
 
   const dup = await repo.existsReferenceDuplicateName(
     payload.projectId,
-    payload.fileName
+    payload.fileName,
+    payload.projectStage
   )
   if (dup) {
     throw new BusinessError('该项目下已存在同名参考资料，请修改文件名后重试')
@@ -376,6 +414,8 @@ export async function completeReferenceFileUpload(uploadToken: string) {
     mimeType: payload.mimeType,
     sourceStorageKey: payload.objectPath,
     uploaderId: user.id,
+    projectStage: payload.projectStage,
+    salesFileTag: payload.salesFileTag,
     fileSource: payload.fileSource,
     isConfidential: payload.isConfidential,
   })
@@ -394,6 +434,7 @@ export async function completeReferenceFileUpload(uploadToken: string) {
 async function prepareDeliverableUpload(input: {
   userId: string
   projectId: string
+  projectStage: ProjectStageValue
   fileName: string
   deliverableMode: 'contract' | 'standalone'
   contractDeliverableId: string
@@ -403,7 +444,10 @@ async function prepareDeliverableUpload(input: {
 }) {
   const projectId = input.projectId?.trim()
   if (!projectId) throw new ValidationError('请选择项目')
-  await assertMemberActiveProject(input.userId, projectId)
+  await assertMemberActiveProjectStage(input.userId, projectId, input.projectStage)
+  if (input.projectStage !== PROJECT_STAGE_IMPLEMENTATION) {
+    throw new ValidationError('成果文件仅支持实施阶段上传')
+  }
 
   const basename = getBasenameOnly(input.fileName)
   const parsed = parseDeliverableFilename(basename)
@@ -523,6 +567,7 @@ export async function beginDeliverableFileUpload(
   const prepared = await prepareDeliverableUpload({
     userId: user.id,
     projectId: input.projectId,
+    projectStage: input.projectStage,
     fileName: input.fileName,
     deliverableMode,
     contractDeliverableId: input.contractDeliverableId?.trim() ?? '',
@@ -545,6 +590,7 @@ export async function beginDeliverableFileUpload(
     userId: user.id,
     fileId,
     projectId: prepared.projectId,
+    projectStage: PROJECT_STAGE_IMPLEMENTATION,
     objectPath,
     fileName: prepared.fileNameForDb,
     fileSize,
@@ -583,6 +629,7 @@ export async function completeDeliverableFileUpload(uploadToken: string) {
   const prepared = await prepareDeliverableUpload({
     userId: user.id,
     projectId: payload.projectId,
+    projectStage: payload.projectStage,
     fileName: payload.fileName,
     deliverableMode: payload.deliverableMode,
     contractDeliverableId: payload.contractDeliverableId,
@@ -603,6 +650,8 @@ export async function completeDeliverableFileUpload(uploadToken: string) {
     mimeType: payload.mimeType,
     sourceStorageKey: payload.objectPath,
     uploaderId: user.id,
+    projectStage: PROJECT_STAGE_IMPLEMENTATION,
+    salesFileTag: null,
     versionGroupId: prepared.versionGroupId,
     versionNo,
     versionLabel: prepared.versionLabelForDb,
@@ -627,12 +676,22 @@ export async function completeDeliverableFileUpload(uploadToken: string) {
 export async function uploadReferenceFile(formData: FormData) {
   const user = await requireUser()
   const projectId = String(formData.get('projectId') ?? '').trim()
+  const projectStage =
+    parseProjectStage(String(formData.get('projectStage') ?? '')) ??
+    PROJECT_STAGE_IMPLEMENTATION
   const sourceRaw = String(formData.get('fileSource') ?? '').trim()
+  const salesFileTag =
+    projectStage === PROJECT_STAGE_SALES
+      ? normalizeSalesFileTag(String(formData.get('salesFileTag') ?? ''))
+      : null
   const confidentialRaw = String(formData.get('isConfidential') ?? '')
   const isConfidential = confidentialRaw === 'true' || confidentialRaw === '1'
 
   if (!projectId) throw new ValidationError('请选择项目')
-  await assertMemberActiveProject(user.id, projectId)
+  await assertMemberActiveProjectStage(user.id, projectId, projectStage)
+  if (projectStage === PROJECT_STAGE_SALES && !salesFileTag) {
+    throw new ValidationError('请选择或填写销售资料标签')
+  }
 
   const allowedSources: FileSourceValue[] = ['client', 'internal', 'public']
   if (!allowedSources.includes(sourceRaw as FileSourceValue)) {
@@ -659,7 +718,11 @@ export async function uploadReferenceFile(formData: FormData) {
   }
 
   const displayName = getBasenameOnly(file.name)
-  const dup = await repo.existsReferenceDuplicateName(projectId, displayName)
+  const dup = await repo.existsReferenceDuplicateName(
+    projectId,
+    displayName,
+    projectStage
+  )
   if (dup) {
     throw new BusinessError('该项目下已存在同名参考资料，请修改文件名后重试')
   }
@@ -687,6 +750,8 @@ export async function uploadReferenceFile(formData: FormData) {
     mimeType: mime,
     sourceStorageKey: objectPath,
     uploaderId: user.id,
+    projectStage,
+    salesFileTag,
     fileSource: sourceRaw,
     isConfidential,
   })
@@ -705,6 +770,9 @@ export async function uploadReferenceFile(formData: FormData) {
 export async function uploadDeliverableFile(formData: FormData) {
   const user = await requireUser()
   const projectId = String(formData.get('projectId') ?? '').trim()
+  const projectStage =
+    parseProjectStage(String(formData.get('projectStage') ?? '')) ??
+    PROJECT_STAGE_IMPLEMENTATION
   const deliverableMode = String(
     formData.get('deliverableMode') ?? 'contract'
   ).trim()
@@ -719,7 +787,10 @@ export async function uploadDeliverableFile(formData: FormData) {
   const isConfidential = confidentialRaw === 'true' || confidentialRaw === '1'
 
   if (!projectId) throw new ValidationError('请选择项目')
-  await assertMemberActiveProject(user.id, projectId)
+  await assertMemberActiveProjectStage(user.id, projectId, projectStage)
+  if (projectStage !== PROJECT_STAGE_IMPLEMENTATION) {
+    throw new ValidationError('成果文件仅支持实施阶段上传')
+  }
 
   const raw = formData.get('file')
   if (!raw || typeof raw !== 'object' || !('arrayBuffer' in raw)) {
@@ -864,6 +935,8 @@ export async function uploadDeliverableFile(formData: FormData) {
     mimeType: mime,
     sourceStorageKey: objectPath,
     uploaderId: user.id,
+    projectStage: PROJECT_STAGE_IMPLEMENTATION,
+    salesFileTag: null,
     versionGroupId,
     versionNo,
     versionLabel: versionLabelForDb,

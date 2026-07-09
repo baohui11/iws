@@ -27,16 +27,6 @@ export default function WeeklyReportsHeaderActions({
         新建周报
       </Button>
 
-      <Button
-        as={Link}
-        href="/weekly/files/upload"
-        variant="bordered"
-        size="sm"
-        className="border-default-200 font-medium"
-        startContent={<Icon icon="lucide:upload" className="size-4" aria-hidden />}
-      >
-        上传文件
-      </Button>
       {showPmActions ? (
         <>
           <Button
@@ -65,18 +55,6 @@ export default function WeeklyReportsHeaderActions({
                 </Chip>
               ) : null}
             </span>
-          </Button>
-          <Button
-            as={Link}
-            href="/weekly/reports/exemptions"
-            variant="bordered"
-            size="sm"
-            className="border-default-200 font-medium"
-            startContent={
-              <Icon icon="lucide:shield-check" className="size-4" aria-hidden />
-            }
-          >
-            无工作周
           </Button>
         </>
       ) : null}

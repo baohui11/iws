@@ -31,6 +31,11 @@ import type {
   ProjectFileListRow,
   ProjectFilesScope,
 } from '@/modules/files/types'
+import {
+  PROJECT_STAGE_LABEL,
+  PROJECT_STAGE_SALES,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
 
 const PAGE_SIZE = 30
 
@@ -60,11 +65,20 @@ const TYPE_OPTIONS: { key: ProjectFileTypeCategory; label: string }[] = (
 
 interface ProjectFilesTabProps {
   projectId: string
+  projectStage?: ProjectStageValue
 }
 
 function projectFileRowTagChips(row: ProjectFileListRow) {
   const out: { key: string; label: string; color: 'primary' | 'secondary' | 'success' | 'warning' }[] =
     []
+  out.push({
+    key: 'stage',
+    label: PROJECT_STAGE_LABEL[row.project_stage] ?? row.project_stage,
+    color: row.project_stage === PROJECT_STAGE_SALES ? 'warning' : 'primary',
+  })
+  if (row.project_stage === PROJECT_STAGE_SALES && row.sales_file_tag) {
+    out.push({ key: 'sales-tag', label: row.sales_file_tag, color: 'secondary' })
+  }
   if (row.is_deliverable) {
     if (row.contract_deliverable_id) {
       out.push({ key: 'contract', label: '合同成果', color: 'primary' })
@@ -103,7 +117,10 @@ function FilePreviewLink({ fileId }: { fileId: string }) {
   )
 }
 
-export default function ProjectFilesTab({ projectId }: ProjectFilesTabProps) {
+export default function ProjectFilesTab({
+  projectId,
+  projectStage,
+}: ProjectFilesTabProps) {
   const [scope, setScope] = useState<ProjectFilesScope>('all')
   const [contractOnly, setContractOnly] = useState(false)
   const [latestOnly, setLatestOnly] = useState(true)
@@ -121,6 +138,7 @@ export default function ProjectFilesTab({ projectId }: ProjectFilesTabProps) {
     const f: ListProjectFilesFilters = {
       scope,
       typeCategory: typeCat,
+      projectStage,
     }
     if (scope === 'deliverable') {
       f.contractDeliverOnly = contractOnly
@@ -130,7 +148,7 @@ export default function ProjectFilesTab({ projectId }: ProjectFilesTabProps) {
       f.referenceSource = refSource
     }
     return f
-  }, [scope, contractOnly, latestOnly, refSource, typeCat])
+  }, [scope, contractOnly, latestOnly, refSource, typeCat, projectStage])
 
   useEffect(() => {
     let cancelled = false

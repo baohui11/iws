@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Button,
   Input,
@@ -39,6 +40,7 @@ import type {
   ExistingDeliverableFileOption,
   ReferenceFileOption,
 } from '@/modules/files/types'
+import type { ProjectStageValue } from '@/constants/project-stage'
 
 const FILE_INPUT_ACCEPT = getProjectFileUploadAcceptAttribute()
 
@@ -47,16 +49,20 @@ const CONFIDENTIAL_TOOLTIP =
 
 export interface WeeklyDeliverableUploadPanelProps {
   projectId: string
+  projectStage: ProjectStageValue
   deliverables: ContractDeliverableOption[]
   existingDeliverableFiles: ExistingDeliverableFileOption[]
   referenceFiles: ReferenceFileOption[]
   optionsLoading: boolean
   onRefreshOptions: () => void
+  returnToHref?: string
+  linkTargetKey?: string
 }
 
 type QueueItem = {
   id: string
   file: File
+  fileNameInput: string
   parsed: ReturnType<typeof parseDeliverableFilename> | null
   parseError: string | null
   /** 成果版本号，可手改；默认识别自文件名 `-V主.次` */
@@ -105,6 +111,7 @@ function newQueueItemFromFile(file: File): QueueItem {
   return {
     id: randomClientId(),
     file,
+    fileNameInput: base,
     parsed,
     parseError: parsed ? null : DELIVERABLE_FILENAME_RULE_HINT,
     versionLabelInput: parsed?.versionLabel ?? '',
@@ -120,12 +127,16 @@ function newQueueItemFromFile(file: File): QueueItem {
 
 export default function WeeklyDeliverableUploadPanel({
   projectId,
+  projectStage,
   deliverables,
   existingDeliverableFiles,
   referenceFiles,
   optionsLoading,
   onRefreshOptions,
+  returnToHref,
+  linkTargetKey,
 }: WeeklyDeliverableUploadPanelProps) {
+  const router = useRouter()
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [refModalItemId, setRefModalItemId] = useState<string | null>(null)
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null)
@@ -140,6 +151,17 @@ export default function WeeklyDeliverableUploadPanel({
 
   const removeItem = (id: string) => {
     setQueue((prev) => prev.filter((it) => it.id !== id))
+  }
+
+  const updateFileNameInput = (item: QueueItem, value: string) => {
+    const fileNameInput = getBasenameOnly(value)
+    const parsed = parseDeliverableFilename(fileNameInput)
+    updateItem(item.id, {
+      fileNameInput,
+      parsed,
+      parseError: parsed ? null : DELIVERABLE_FILENAME_RULE_HINT,
+      versionLabelInput: parsed?.versionLabel ?? item.versionLabelInput,
+    })
   }
 
   const onFilesPicked = (list: FileList | null) => {
@@ -165,7 +187,14 @@ export default function WeeklyDeliverableUploadPanel({
         color: 'warning',
       })
     }
-    if (!ok.length) return
+    if (!ok.length) {
+      addToast({
+        title: '没有可提交的文件',
+        description: PROJECT_FILE_ALLOWED_EXT_HINT,
+        color: 'warning',
+      })
+      return
+    }
     setQueue((prev) => [...prev, ...ok.map(newQueueItemFromFile)])
   }
 
@@ -178,6 +207,13 @@ export default function WeeklyDeliverableUploadPanel({
       showErrorToast({
         title: '文件名不符合规则',
         message: item.parseError ?? DELIVERABLE_FILENAME_RULE_HINT,
+      })
+      return
+    }
+    if (item.isContractDeliverable && !item.contractDeliverableId) {
+      showErrorToast({
+        title: '请选择合同成果项',
+        message: '当前文件选择了「合同成果」，需要先关联合同成果清单中的一项。',
       })
       return
     }
@@ -195,7 +231,8 @@ export default function WeeklyDeliverableUploadPanel({
     try {
       const begin = await beginDeliverableFileUploadAction({
         projectId,
-        fileName: item.file.name,
+        projectStage,
+        fileName: item.fileNameInput,
         fileSize: item.file.size,
         mimeType: item.file.type,
         deliverableMode: item.isContractDeliverable ? 'contract' : 'standalone',
@@ -223,6 +260,14 @@ export default function WeeklyDeliverableUploadPanel({
       )
       if (result.success) {
         addToast({ title: '已提交', color: 'success', timeout: 2200 })
+        if (returnToHref && linkTargetKey) {
+          const url = new URL(returnToHref, window.location.origin)
+          url.searchParams.set('linkedFileId', result.data.id)
+          url.searchParams.set('linkedFileName', item.fileNameInput)
+          url.searchParams.set('linkTargetKey', linkTargetKey)
+          router.push(`${url.pathname}${url.search}`)
+          return
+        }
         removeItem(item.id)
         onRefreshOptions()
       } else {
@@ -302,7 +347,7 @@ export default function WeeklyDeliverableUploadPanel({
                 <div className="mb-3 flex flex-wrap items-start gap-2">
                   <div className="flex min-w-0 flex-1 items-start gap-2">
                     <FileTypeIcon
-                      fileName={item.file.name}
+                      fileName={item.fileNameInput}
                       className="mt-0.5 size-5 shrink-0 object-contain"
                     />
                     <div className="min-w-0 flex-1">
@@ -355,6 +400,18 @@ export default function WeeklyDeliverableUploadPanel({
                     />
                   </Button>
                 </div>
+
+                <Input
+                  className="mb-3"
+                  size="sm"
+                  label="系统文件名"
+                  labelPlacement="outside"
+                  variant="bordered"
+                  value={item.fileNameInput}
+                  isDisabled={busy}
+                  description="可在上传前重命名，需符合成果文件命名规则。"
+                  onValueChange={(v) => updateFileNameInput(item, v)}
+                />
 
                 {item.parsed ? (
                   <p className="mb-2 text-xs text-default-500">
@@ -651,7 +708,12 @@ export default function WeeklyDeliverableUploadPanel({
                     color="primary"
                     size="sm"
                     isLoading={busy}
-                    isDisabled={busy || !item.parsed || !!linkMismatch}
+                    isDisabled={
+                      busy ||
+                      !item.parsed ||
+                      !!linkMismatch ||
+                      (item.isContractDeliverable && !item.contractDeliverableId)
+                    }
                     onPress={() => void submitOne(item)}
                   >
                     提交此文件

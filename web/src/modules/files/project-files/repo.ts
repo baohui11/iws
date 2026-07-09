@@ -16,6 +16,7 @@ import {
   type ProjectFileTypeCategory,
 } from '@/modules/files/lib/project-file-type-category'
 import type { ListProjectFilesFilters, ProjectFileListRow, FileSourceValue } from '../types'
+import type { ProjectStageValue } from '@/constants/project-stage'
 
 type FileRowDb = {
   id: string
@@ -29,6 +30,8 @@ type FileRowDb = {
   is_confidential: boolean | null
   is_deliverable: boolean | null
   contract_deliverable_id: string | null
+  project_stage: ProjectStageValue
+  sales_file_tag: string | null
   file_source: string | null
   is_latest: boolean | null
 }
@@ -65,6 +68,8 @@ async function mapRowsWithUploaderNames(
     is_confidential: Boolean(r.is_confidential),
     is_deliverable: Boolean(r.is_deliverable),
     contract_deliverable_id: r.contract_deliverable_id,
+    project_stage: r.project_stage,
+    sales_file_tag: r.sales_file_tag,
     file_source: r.file_source,
     is_latest: Boolean(r.is_latest),
   }))
@@ -84,6 +89,9 @@ export async function listProjectFilesPage(
   const conditions = [eq(files.projectId, projectId)]
 
   const { scope } = filters
+  if (filters.projectStage) {
+    conditions.push(eq(files.projectStage, filters.projectStage))
+  }
 
   if (scope === 'deliverable') {
     conditions.push(eq(files.isDeliverable, true))
@@ -130,6 +138,8 @@ export async function listProjectFilesPage(
       is_confidential: files.isConfidential,
       is_deliverable: files.isDeliverable,
       contract_deliverable_id: files.contractDeliverableId,
+      project_stage: files.projectStage,
+      sales_file_tag: files.salesFileTag,
       file_source: files.fileSource,
       is_latest: files.isLatest,
     })

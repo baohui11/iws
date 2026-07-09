@@ -1,6 +1,6 @@
 'use client'
 
-import SearchableMultiSelect from '@/modules/weekly/components/filters/searchable-multi-select'
+import ProjectSearchMultiSelect from '@/modules/projects/components/project-search-multi-select'
 import type { MemberProjectOption } from '@/modules/weekly/types'
 
 interface ProjectMultiSelectProps {
@@ -18,22 +18,11 @@ export default function ProjectMultiSelect({
   isDisabled,
   className,
 }: ProjectMultiSelectProps) {
-  const items = projects.map((p) => {
-    const name = p.project_name ?? p.project_no ?? p.id
-    return {
-      key: p.id,
-      searchText: `${name} ${p.project_no ?? ''}`,
-      children: <span className="text-sm">{name}</span>,
-    }
-  })
-
   return (
-    <SearchableMultiSelect
-      items={items}
+    <ProjectSearchMultiSelect
+      projects={projects}
       selectedKeys={selectedKeys}
       onSelectionChange={onSelectionChange}
-      allLabel="全部项目"
-      ariaLabel="项目"
       className={className}
       isDisabled={isDisabled}
     />

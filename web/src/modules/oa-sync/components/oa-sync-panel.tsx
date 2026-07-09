@@ -8,7 +8,7 @@ import {
   AdminTablePagination,
   AdminTableSummary,
 } from '@/components/common/admin-table-controls'
-import { showResultError } from '@/core/client/errors'
+import { showErrorToast, showResultError } from '@/core/client/errors'
 import {
   syncOaDepartmentsAction,
   syncOaProjectRolesAction,
@@ -190,30 +190,35 @@ export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[]
   const runSync = (scope: Scope) => {
     setPendingScope(scope)
     startTransition(async () => {
-      const result = await (scope === 'departments'
-        ? syncOaDepartmentsAction()
-        : scope === 'users'
-          ? syncOaUsersAction()
-          : scope === 'projects'
-            ? syncOaProjectsAction()
-            : syncOaProjectRolesAction())
+      try {
+        const result = await (scope === 'departments'
+          ? syncOaDepartmentsAction()
+          : scope === 'users'
+            ? syncOaUsersAction()
+            : scope === 'projects'
+              ? syncOaProjectsAction()
+              : syncOaProjectRolesAction())
 
-      setPendingScope(null)
-      if (!result.success) {
-        showResultError(result, 'OA 同步失败')
-        return
-      }
+        if (!result.success) {
+          showResultError(result, 'OA 同步失败')
+          return
+        }
 
-      if (scope === 'departments') {
-        setLastResult({ scope, data: result.data as OaSyncStats })
-      } else if (scope === 'users') {
-        setLastResult({ scope, data: result.data as OaUserSyncStats })
-      } else if (scope === 'projects') {
-        setLastResult({ scope, data: result.data as OaProjectSyncStats })
-      } else {
-        setLastResult({ scope, data: result.data as OaProjectRoleSyncStats })
+        if (scope === 'departments') {
+          setLastResult({ scope, data: result.data as OaSyncStats })
+        } else if (scope === 'users') {
+          setLastResult({ scope, data: result.data as OaUserSyncStats })
+        } else if (scope === 'projects') {
+          setLastResult({ scope, data: result.data as OaProjectSyncStats })
+        } else {
+          setLastResult({ scope, data: result.data as OaProjectRoleSyncStats })
+        }
+        router.refresh()
+      } catch (error) {
+        showErrorToast({ title: 'OA 同步失败', error })
+      } finally {
+        setPendingScope(null)
       }
-      router.refresh()
     })
   }
 

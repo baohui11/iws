@@ -2,12 +2,19 @@
 
 import { createContext, useContext } from 'react'
 import type { ProjectDetail } from '@/modules/projects/types'
-import type { ProjectWeeklyWeeksPage } from '@/modules/weekly/types'
+import type {
+  ProjectWeeklyWeeksPage,
+} from '@/modules/weekly/types'
+import type { WeeklyProjectPauseRow } from '@/modules/weekly/projects/repo'
+import type { ProjectStageValue } from '@/constants/project-stage'
 
 export type ProjectDetailContextValue = {
   project: ProjectDetail
   departmentLabel: string
   initialProjectWeekly: ProjectWeeklyWeeksPage
+  canManageProject: boolean
+  pauses: WeeklyProjectPauseRow[]
+  visibleStages: ProjectStageValue[]
 }
 
 const ProjectDetailContext = createContext<ProjectDetailContextValue | null>(

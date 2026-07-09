@@ -1,9 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Chip } from '@heroui/react'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button, Chip, addToast } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { SubpageBackButton } from '@/components/common/subpage-header'
+import ConfirmActionModal from '@/components/common/confirm-action-modal'
 import {
   WEEKLY_REPORT_STATUS_COLOR,
   WEEKLY_REPORT_STATUS_LABEL,
@@ -12,6 +15,8 @@ import {
 import { formatWeekRangeLine, formatWeekTitleZh } from '@/modules/weekly/lib/week-display'
 import { formatWorkSlotsBriefZh } from '@/modules/weekly/lib/weekly-report-work-slots'
 import type { WeeklyReportDetailPayload } from '@/modules/weekly/types'
+import { withdrawWeeklyReportAction } from '@/modules/weekly/report-editor/actions'
+import { showResultError } from '@/core/client/errors'
 
 export interface WeeklyReportDetailViewProps {
   detail: WeeklyReportDetailPayload
@@ -22,12 +27,31 @@ export default function WeeklyReportDetailView({
   detail,
   viewerId,
 }: WeeklyReportDetailViewProps) {
+  const router = useRouter()
+  const [withdrawing, setWithdrawing] = useState(false)
+  const [withdrawConfirmOpen, setWithdrawConfirmOpen] = useState(false)
   const { report, week, next_week, project, author_name, items, reject_reason } =
     detail
   const isAuthor = viewerId === report.user_id
   const canEditDraft = isAuthor && isWeeklyReportEditableStatus(report.status)
+  const canWithdraw =
+    isAuthor && (report.status === 'pending' || report.status === 'approved')
 
-  const editHref = `/weekly/reports/new?projectId=${encodeURIComponent(report.project_id)}&weekCode=${encodeURIComponent(report.week_code)}`
+  const editHref = `/weekly/reports/new?projectId=${encodeURIComponent(report.project_id)}&weekCode=${encodeURIComponent(report.week_code)}&projectStage=${encodeURIComponent(report.project_stage)}`
+
+  const withdraw = async () => {
+    if (withdrawing) return
+    setWithdrawing(true)
+    const result = await withdrawWeeklyReportAction({ reportId: report.id })
+    setWithdrawing(false)
+    if (!result.success) {
+      showResultError(result, '撤回失败')
+      return
+    }
+    addToast({ title: '已撤回', color: 'success' })
+    setWithdrawConfirmOpen(false)
+    router.refresh()
+  }
 
   const workItems = items.filter((i) => i.item_type === 'work')
   const planItems = items.filter((i) => i.item_type === 'plan')
@@ -127,9 +151,38 @@ export default function WeeklyReportDetailView({
                 继续编辑
               </Button>
             ) : null}
+            {canWithdraw ? (
+              <Button
+                color="warning"
+                variant="flat"
+                size="sm"
+                isLoading={withdrawing}
+                startContent={
+                  !withdrawing ? (
+                    <Icon icon="lucide:undo-2" className="size-4" />
+                  ) : null
+                }
+                onPress={() => setWithdrawConfirmOpen(true)}
+              >
+                撤回
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
+
+      <ConfirmActionModal
+        isOpen={withdrawConfirmOpen}
+        title="撤回周报"
+        description="撤回后该周报会回到可编辑状态，修改完成后需要重新提交。"
+        confirmText="确认撤回"
+        confirmColor="warning"
+        isLoading={withdrawing}
+        onClose={() => {
+          if (!withdrawing) setWithdrawConfirmOpen(false)
+        }}
+        onConfirm={() => void withdraw()}
+      />
 
       {report.status === 'rejected' ? (
         <div className="rounded-xl border border-danger-200/80 bg-danger-50/40 p-5 shadow-sm dark:bg-danger-950/20">

@@ -17,6 +17,7 @@ import { groupReferenceFilesByOrderedSource } from '@/modules/files/lib/referenc
 import { formatUploadDateShort } from '@/modules/files/lib/format-upload-date'
 import { truncateFilenameMiddle } from '@/modules/files/lib/truncate-filename-middle'
 import type { ReferenceFileOption } from '@/modules/files/types'
+import { PROJECT_STAGE_IMPLEMENTATION } from '@/constants/project-stage'
 
 export interface DeliverableReferencePickerModalProps {
   isOpen: boolean
@@ -251,6 +252,7 @@ export default function DeliverableReferencePickerModal({
           <ModalBody className="px-6 py-4">
             <WeeklyReferenceUploadPanel
               projectId={projectId}
+              projectStage={PROJECT_STAGE_IMPLEMENTATION}
               optionsLoading={false}
               onRefreshOptions={() => {
                 onRefreshOptions()

@@ -23,6 +23,10 @@ import {
 } from '@/core/db/schema'
 import { isWeeklyReportEditableStatus } from '@/constants/weekly-report-status'
 import type { WeeklyReportStatus } from '@/constants/weekly-report-status'
+import {
+  PROJECT_STAGE_SALES,
+  type ProjectStageValue,
+} from '@/constants/project-stage'
 import { nextWeekRangeAfterWeekEnd } from '@/modules/weekly/lib/week-report-dates'
 import {
   parseWeekHalfSlotKey,
@@ -34,11 +38,11 @@ import {
 } from '@/modules/weekly/lib/weekly-report-work-slots'
 import { isProjectWeekExempt } from '../exemptions/repo'
 import type {
-  DeliverablePickRow,
   WeeklyReportDetailPayload,
   WeeklyReportEditorItem,
   WeeklyReportEditorPayload,
   WeeklyReportEditorProject,
+  WeeklyReportFilePickRow,
   WeeklyReportWeekBounds,
   WeeklyReportItemType,
 } from '../types'
@@ -84,16 +88,41 @@ export async function getWeekBoundsByCode(
 
 export async function isUserProjectMember(
   userId: string,
+  projectId: string,
+  projectStage?: ProjectStageValue
+): Promise<boolean> {
+  const db = getDb()
+  const conditions = [
+    eq(projectMembers.userId, userId),
+    eq(projectMembers.projectId, projectId),
+    eq(projectMembers.isActive, true),
+    isNull(projectMembers.deletedAt),
+  ]
+  if (projectStage) {
+    conditions.push(eq(projectMembers.projectStage, projectStage))
+  }
+  const rows = await db
+    .select({ projectId: projectMembers.projectId })
+    .from(projectMembers)
+    .where(and(...conditions))
+    .limit(1)
+  return rows.length > 0
+}
+
+export async function isUserImplementationProjectManager(
+  userId: string,
   projectId: string
 ): Promise<boolean> {
   const db = getDb()
   const rows = await db
-    .select({ projectId: projectMembers.projectId })
+    .select({ id: projectMembers.id })
     .from(projectMembers)
     .where(
       and(
         eq(projectMembers.userId, userId),
         eq(projectMembers.projectId, projectId),
+        eq(projectMembers.projectRole, '项目经理'),
+        eq(projectMembers.projectStage, '实施阶段'),
         eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt)
       )
@@ -128,7 +157,8 @@ async function fetchProjectBrief(
 export async function getWeeklyReportMetaForUserWeek(
   userId: string,
   projectId: string,
-  weekCode: string
+  weekCode: string,
+  projectStage: ProjectStageValue
 ): Promise<{ id: string; status: WeeklyReportStatus } | null> {
   const db = getDb()
   const rows = await db
@@ -138,7 +168,8 @@ export async function getWeeklyReportMetaForUserWeek(
       and(
         eq(weeklyReports.userId, userId),
         eq(weeklyReports.projectId, projectId),
-        eq(weeklyReports.weekCode, weekCode)
+        eq(weeklyReports.weekCode, weekCode),
+        eq(weeklyReports.projectStage, projectStage)
       )
     )
     .limit(1)
@@ -151,7 +182,8 @@ export async function getWeeklyReportMetaForUserWeek(
 export async function getOrCreateDraftReport(
   userId: string,
   projectId: string,
-  weekCode: string
+  weekCode: string,
+  projectStage: ProjectStageValue
 ): Promise<{ id: string }> {
   const db = getDb()
   const existing = await db
@@ -161,7 +193,8 @@ export async function getOrCreateDraftReport(
       and(
         eq(weeklyReports.userId, userId),
         eq(weeklyReports.projectId, projectId),
-        eq(weeklyReports.weekCode, weekCode)
+        eq(weeklyReports.weekCode, weekCode),
+        eq(weeklyReports.projectStage, projectStage)
       )
     )
     .limit(1)
@@ -174,6 +207,7 @@ export async function getOrCreateDraftReport(
       userId,
       projectId,
       weekCode,
+      projectStage,
       status: 'draft',
     })
     .returning({ id: weeklyReports.id })
@@ -322,12 +356,13 @@ export async function loadWeeklyReportItemsForReportIds(
 export async function loadWeeklyReportEditorPayload(
   userId: string,
   projectId: string,
-  weekCode: string
+  weekCode: string,
+  projectStage: ProjectStageValue
 ): Promise<WeeklyReportEditorPayload | null> {
   const week = await getWeekBoundsByCode(weekCode)
   if (!week) return null
 
-  const member = await isUserProjectMember(userId, projectId)
+  const member = await isUserProjectMember(userId, projectId, projectStage)
   if (!member) return null
 
   const project = await fetchProjectBrief(projectId)
@@ -340,7 +375,8 @@ export async function loadWeeklyReportEditorPayload(
   const { id: reportId } = await getOrCreateDraftReport(
     userId,
     projectId,
-    weekCode
+    weekCode,
+    projectStage
   )
 
   const db = getDb()
@@ -351,6 +387,7 @@ export async function loadWeeklyReportEditorPayload(
       userId: weeklyReports.userId,
       projectId: weeklyReports.projectId,
       weekCode: weeklyReports.weekCode,
+      projectStage: weeklyReports.projectStage,
       isOverdue: weeklyReports.isOverdue,
     })
     .from(weeklyReports)
@@ -388,6 +425,7 @@ export async function loadWeeklyReportEditorPayload(
       user_id: report.userId,
       project_id: report.projectId,
       week_code: report.weekCode,
+      project_stage: report.projectStage,
       is_overdue: !!report.isOverdue,
     },
     week,
@@ -399,12 +437,14 @@ export async function loadWeeklyReportEditorPayload(
   }
 }
 
-export async function listDeliverableFilesForWeeklyPicker(
+export async function listWeeklyReportFilesForPicker(
   projectId: string,
-  weekStartDate: string
-): Promise<DeliverablePickRow[]> {
+  weekStartDate: string,
+  projectStage: ProjectStageValue
+): Promise<WeeklyReportFilePickRow[]> {
   const db = getDb()
   const startIso = `${weekStartDate}T00:00:00.000Z`
+  const isSalesStage = projectStage === PROJECT_STAGE_SALES
 
   const rows = await db
     .select({
@@ -413,12 +453,16 @@ export async function listDeliverableFilesForWeeklyPicker(
       createdAt: files.createdAt,
       versionLabel: files.versionLabel,
       isLatest: files.isLatest,
+      isDeliverable: files.isDeliverable,
+      salesFileTag: files.salesFileTag,
+      fileSource: files.fileSource,
     })
     .from(files)
     .where(
       and(
         eq(files.projectId, projectId),
-        eq(files.isDeliverable, true),
+        eq(files.projectStage, projectStage),
+        eq(files.isDeliverable, !isSalesStage),
         gte(files.createdAt, new Date(startIso))
       )
     )
@@ -430,16 +474,23 @@ export async function listDeliverableFilesForWeeklyPicker(
     created_at: toIso(r.createdAt) ?? '',
     version_label: r.versionLabel,
     is_latest: r.isLatest ?? false,
+    is_deliverable: r.isDeliverable ?? false,
+    sales_file_tag: r.salesFileTag,
+    file_source: r.fileSource,
   }))
 }
 
 export async function verifyFilesLinkableToWeeklyItem(
   fileIds: string[],
-  projectId: string
+  projectId: string,
+  projectStage: ProjectStageValue,
+  weekStartDate: string
 ): Promise<boolean> {
   if (!fileIds.length) return true
 
   const db = getDb()
+  const startIso = `${weekStartDate}T00:00:00.000Z`
+  const isSalesStage = projectStage === PROJECT_STAGE_SALES
   const rows = await db
     .select({ id: files.id })
     .from(files)
@@ -447,7 +498,9 @@ export async function verifyFilesLinkableToWeeklyItem(
       and(
         inArray(files.id, fileIds),
         eq(files.projectId, projectId),
-        eq(files.isDeliverable, true)
+        eq(files.projectStage, projectStage),
+        eq(files.isDeliverable, !isSalesStage),
+        gte(files.createdAt, new Date(startIso))
       )
     )
 
@@ -466,6 +519,7 @@ export async function loadWeeklyReportDetail(
       userId: weeklyReports.userId,
       projectId: weeklyReports.projectId,
       weekCode: weeklyReports.weekCode,
+      projectStage: weeklyReports.projectStage,
       submitTime: weeklyReports.submitTime,
       createdAt: weeklyReports.createdAt,
       isOverdue: weeklyReports.isOverdue,
@@ -519,6 +573,7 @@ export async function loadWeeklyReportDetail(
       user_id: report.userId,
       project_id: report.projectId,
       week_code: report.weekCode,
+      project_stage: report.projectStage,
       submit_time: toIso(report.submitTime),
       created_at: toIso(report.createdAt)!,
       is_overdue: !!report.isOverdue,
@@ -803,6 +858,7 @@ export async function getReportForEdit(reportId: string): Promise<{
   status: WeeklyReportStatus
   project_id: string
   week_code: string
+  project_stage: ProjectStageValue
 } | null> {
   const db = getDb()
   const rows = await db
@@ -812,6 +868,7 @@ export async function getReportForEdit(reportId: string): Promise<{
       status: weeklyReports.status,
       projectId: weeklyReports.projectId,
       weekCode: weeklyReports.weekCode,
+      projectStage: weeklyReports.projectStage,
     })
     .from(weeklyReports)
     .where(eq(weeklyReports.id, reportId))
@@ -825,6 +882,7 @@ export async function getReportForEdit(reportId: string): Promise<{
     status: r.status as WeeklyReportStatus,
     project_id: r.projectId,
     week_code: r.weekCode,
+    project_stage: r.projectStage,
   }
 }
 
@@ -888,10 +946,79 @@ export async function submitWeeklyReportDb(input: {
       and(
         eq(weeklyReports.id, input.reportId),
         eq(weeklyReports.userId, input.userId),
-        inArray(weeklyReports.status, ['draft', 'rejected'])
+        inArray(weeklyReports.status, ['draft', 'rejected', 'withdrawn'])
       )
     )
     .returning({ id: weeklyReports.id })
 
   return updated.length > 0
+}
+
+export async function withdrawWeeklyReportDb(input: {
+  reportId: string
+  userId: string
+  since: Date
+}): Promise<boolean> {
+  const db = getDb()
+  const now = new Date()
+  const updated = await db
+    .update(weeklyReports)
+    .set({
+      status: 'withdrawn',
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(weeklyReports.id, input.reportId),
+        eq(weeklyReports.userId, input.userId),
+        inArray(weeklyReports.status, ['pending', 'approved']),
+        gte(weeklyReports.submitTime, input.since)
+      )
+    )
+    .returning({ id: weeklyReports.id })
+
+  return updated.length > 0
+}
+
+export async function deleteWeeklyReportDb(input: {
+  reportId: string
+  userId: string
+}): Promise<boolean> {
+  const db = getDb()
+  const reports = await db
+    .select({ id: weeklyReports.id })
+    .from(weeklyReports)
+    .where(
+      and(
+        eq(weeklyReports.id, input.reportId),
+        eq(weeklyReports.userId, input.userId),
+        inArray(weeklyReports.status, ['draft', 'withdrawn'])
+      )
+    )
+    .limit(1)
+  if (!reports.length) return false
+
+  const items = await db
+    .select({ id: weeklyReportItems.id })
+    .from(weeklyReportItems)
+    .where(eq(weeklyReportItems.reportId, input.reportId))
+  const itemIds = items.map((item) => item.id)
+
+  if (itemIds.length) {
+    await db
+      .delete(weeklyReportFileLinks)
+      .where(inArray(weeklyReportFileLinks.reportItemId, itemIds))
+  }
+  await db
+    .delete(weeklyReportItems)
+    .where(eq(weeklyReportItems.reportId, input.reportId))
+  await db
+    .delete(weeklyReportApprovals)
+    .where(eq(weeklyReportApprovals.reportId, input.reportId))
+  const deleted = await db
+    .delete(weeklyReports)
+    .where(eq(weeklyReports.id, input.reportId))
+    .returning({ id: weeklyReports.id })
+
+  return deleted.length > 0
 }

@@ -64,4 +64,5 @@ export const weeklyReportStatus = pgEnum('weekly_report_status', [
   'pending',
   'approved',
   'rejected',
+  'withdrawn',
 ])
