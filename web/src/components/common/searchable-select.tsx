@@ -35,6 +35,7 @@ interface SearchableSelectProps {
     clearButton?: string
   }
   itemClassName?: string
+  'aria-label'?: string
 }
 
 const EMPTY_KEY = '__empty__'
@@ -64,6 +65,7 @@ export default function SearchableSelect({
   className,
   classNames,
   itemClassName,
+  'aria-label': ariaLabel,
 }: SearchableSelectProps) {
   const items = useMemo(
     () =>
@@ -100,6 +102,7 @@ export default function SearchableSelect({
       isDisabled={isDisabled}
       isRequired={isRequired}
       label={label}
+      aria-label={ariaLabel}
       placeholder={placeholder}
       selectedKey={selectedKey}
       size={size}

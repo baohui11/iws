@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@heroui/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { cn } from '@heroui/react'
 import { loadWeeklyDeptByProjectAction } from '@/modules/stats/actions'
 import type { WeeklyDeptByProjectRow, DeptOption, WeekOptionLite } from '@/modules/stats/types'
@@ -56,20 +56,6 @@ export default function WeeklyStatsByProjectClient({
     setRows(result.data)
   }, [])
 
-  useEffect(() => {
-    if (initialDepartmentId && initialWeekCode) {
-      // 挂载时按服务端初值拉取统计（外部数据同步）
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void runQuery({
-        departmentId: initialDepartmentId,
-        weekCode: initialWeekCode,
-        personKeyword: '',
-        projectKeyword: '',
-        projectStage: '',
-      })
-    }
-  }, [initialDepartmentId, initialWeekCode, runQuery])
-
   const csv = useMemo(() => {
     const headers = [
       '项目名称',
@@ -104,7 +90,6 @@ export default function WeeklyStatsByProjectClient({
         initialWeekCode={initialWeekCode}
         showPersonSearch={false}
         showProjectSearch
-        loading={loading}
         onApply={runQuery}
       />
 

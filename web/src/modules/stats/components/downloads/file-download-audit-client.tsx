@@ -1,9 +1,6 @@
 ﻿'use client'
 
 import {
-  Button,
-  DateRangePicker,
-  Input,
   Pagination,
   Spinner,
   Tab,
@@ -15,7 +12,6 @@ import {
   TableRow,
   Tabs,
 } from '@heroui/react'
-import { Icon } from '@iconify/react'
 import { getLocalTimeZone, today, type DateValue } from '@internationalized/date'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -23,7 +19,12 @@ import {
   loadFileDownloadDetailsAction,
 } from '@/modules/stats/actions'
 import { showResultError } from '@/core/client/errors'
-import { StatsLabelField } from '@/modules/stats/components/shared/stats-label-field'
+import {
+  StatsDateRangeFilter,
+  StatsFilterBar,
+  StatsTextFilter,
+  useDebouncedValue,
+} from '@/modules/stats/components/shared/stats-filter-controls'
 import type {
   FileDownloadByPersonRow,
   FileDownloadDetailRow,
@@ -56,6 +57,7 @@ export default function FileDownloadAuditClient() {
   const initial = useMemo(() => defaultDateRange(), [])
   const [dateRange, setDateRange] = useState<DateRange>(initial)
   const [nameKw, setNameKw] = useState('')
+  const debouncedNameKw = useDebouncedValue(nameKw)
 
   const dateFrom = dateRange.start.toString()
   const dateTo = dateRange.end.toString()
@@ -73,7 +75,7 @@ export default function FileDownloadAuditClient() {
     const res = await loadFileDownloadByPersonAction({
       dateFrom,
       dateTo,
-      nameKeyword: nameKw.trim() || null,
+      nameKeyword: debouncedNameKw.trim() || null,
     })
     setLoadingPerson(false)
     if (!res.success) {
@@ -82,7 +84,7 @@ export default function FileDownloadAuditClient() {
       return
     }
     setByPerson(res.data)
-  }, [dateFrom, dateTo, nameKw])
+  }, [dateFrom, dateTo, debouncedNameKw])
 
   const fetchDetails = useCallback(
     async (page: number) => {
@@ -91,7 +93,7 @@ export default function FileDownloadAuditClient() {
       const res = await loadFileDownloadDetailsAction({
         dateFrom,
         dateTo,
-        nameKeyword: nameKw.trim() || null,
+        nameKeyword: debouncedNameKw.trim() || null,
         offset,
         limit: DETAILS_PAGE_SIZE,
       })
@@ -106,19 +108,13 @@ export default function FileDownloadAuditClient() {
       setDetailsTotal(res.data.total)
       setDetailsPage(page)
     },
-    [dateFrom, dateTo, nameKw]
+    [dateFrom, dateTo, debouncedNameKw]
   )
-
-  const runSearch = useCallback(() => {
-    void fetchPerson()
-    void fetchDetails(1)
-  }, [fetchPerson, fetchDetails])
 
   useEffect(() => {
     void fetchPerson()
     void fetchDetails(1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [fetchDetails, fetchPerson])
 
   const detailsTotalPages = Math.max(
     1,
@@ -127,54 +123,10 @@ export default function FileDownloadAuditClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-lg border border-default-200/80 bg-default-50/50 p-3">
-        <div className="flex flex-col gap-2.5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-2">
-          <StatsLabelField label="日期" className="lg:min-w-[min(100%,32rem)]">
-            <DateRangePicker
-              aria-label="日期范围"
-              size="sm"
-              variant="bordered"
-              value={dateRange}
-              onChange={(r) => {
-                if (r?.start && r?.end)
-                  setDateRange({ start: r.start, end: r.end })
-              }}
-              granularity="day"
-              visibleMonths={2}
-              className="w-full min-w-[18rem] max-w-[36rem]"
-            />
-          </StatsLabelField>
-
-          <StatsLabelField label="姓名" className="lg:min-w-[min(100%,20rem)]">
-            <Input
-              aria-label="姓名模糊"
-              size="sm"
-              variant="bordered"
-              placeholder="模糊"
-              value={nameKw}
-              onValueChange={setNameKw}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') runSearch()
-              }}
-              className="w-full min-w-[12rem] max-w-[20rem]"
-            />
-          </StatsLabelField>
-
-          <div className="flex w-full justify-end lg:ml-auto lg:w-auto">
-            <Button
-              color="primary"
-              size="sm"
-              className="font-medium"
-              startContent={
-                <Icon icon="lucide:search" className="size-4" aria-hidden />
-              }
-              onPress={runSearch}
-            >
-              查询
-            </Button>
-          </div>
-        </div>
-      </div>
+      <StatsFilterBar>
+        <StatsDateRangeFilter value={dateRange} onChange={setDateRange} />
+        <StatsTextFilter label="姓名" value={nameKw} onChange={setNameKw} />
+      </StatsFilterBar>
 
       <Tabs
         aria-label="文件下载统计"

@@ -13,7 +13,6 @@ import {
 } from '@/core/db/schema'
 import { WEEKLY_REPORT_STATUS_LABEL } from '@/constants/weekly-report-status'
 import { compareWeekCode } from '@/modules/weekly/lib/iso-week'
-import { getDepartmentIdsForListFilter } from '@/modules/org/departments/repo'
 import type {
   WeeklyDeptByPersonRow,
   WeeklyDeptByProjectRow,
@@ -33,20 +32,24 @@ function hoursToWorkDays(hours: number): number {
 }
 
 export interface WeeklyDeptStatsParams {
-  departmentId: string
+  departmentIds: string[] | null
   weekCode: string
   personNameKeyword?: string | null
   projectKeyword?: string | null
   projectStage?: string | null
 }
 
-async function getProjectIdsInDepartmentScope(departmentId: string): Promise<string[]> {
+async function getProjectIdsInDepartmentScope(
+  departmentIds: string[] | null
+): Promise<string[]> {
   const db = getDb()
-  const deptIds = await getDepartmentIdsForListFilter(departmentId)
+  if (departmentIds && departmentIds.length === 0) return []
+  const conds = [isNull(projects.deletedAt)]
+  if (departmentIds) conds.push(inArray(projects.departmentId, departmentIds))
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(inArray(projects.departmentId, deptIds), isNull(projects.deletedAt)))
+    .where(and(...conds))
 
   return rows.map((r) => r.id).filter(Boolean)
 }
@@ -71,8 +74,9 @@ export async function getWeeklyDeptByPerson(
 ): Promise<WeeklyDeptByPersonRow[]> {
   const db = getDb()
   const weekCode = params.weekCode.trim()
-  const deptIds = await getDepartmentIdsForListFilter(params.departmentId)
-  let projectIds = await getProjectIdsInDepartmentScope(params.departmentId)
+  const deptIds = params.departmentIds
+  if (deptIds && deptIds.length === 0) return []
+  let projectIds = await getProjectIdsInDepartmentScope(deptIds)
   if (!projectIds.length) return []
 
   const pk = params.projectKeyword?.trim()
@@ -96,9 +100,9 @@ export async function getWeeklyDeptByPerson(
   const stage = params.projectStage?.trim() || null
 
   const userConditions = [
-    inArray(users.departmentId, deptIds),
     isNull(users.deletedAt),
   ]
+  if (deptIds) userConditions.push(inArray(users.departmentId, deptIds))
   const kw = params.personNameKeyword?.trim()
   if (kw) {
     userConditions.push(ilike(users.name, `%${escapeForILike(kw)}%`))
@@ -221,13 +225,14 @@ export async function getWeeklyDeptByProject(
 ): Promise<WeeklyDeptByProjectRow[]> {
   const db = getDb()
   const weekCode = params.weekCode.trim()
-  const deptIds = await getDepartmentIdsForListFilter(params.departmentId)
+  const deptIds = params.departmentIds
+  if (deptIds && deptIds.length === 0) return []
 
   const projectConditions = [
-    inArray(projects.departmentId, deptIds),
     eq(projects.isActive, true),
     isNull(projects.deletedAt),
   ]
+  if (deptIds) projectConditions.push(inArray(projects.departmentId, deptIds))
   const pk = params.projectKeyword?.trim()
   if (pk) {
     const k = `%${escapeForILike(pk)}%`
@@ -330,7 +335,7 @@ export async function getWeeklyDeptDetails(
 ): Promise<WeeklyDeptDetailRow[]> {
   const db = getDb()
   const weekCode = params.weekCode.trim()
-  let projectIds = await getProjectIdsInDepartmentScope(params.departmentId)
+  let projectIds = await getProjectIdsInDepartmentScope(params.departmentIds)
   if (!projectIds.length) return []
 
   const pk = params.projectKeyword?.trim()
@@ -481,7 +486,7 @@ export async function getWeeklyDeptDetails(
 }
 
 export interface WeeklyProjectPersonRangeParams {
-  departmentId: string
+  departmentIds: string[] | null
   projectKeyword: string
   projectStage?: string | null
   weekCodeFrom: string
@@ -508,7 +513,8 @@ export async function getWeeklyProjectPersonRange(
   params: WeeklyProjectPersonRangeParams
 ): Promise<WeeklyProjectPersonRangeRow[]> {
   const db = getDb()
-  const deptIds = await getDepartmentIdsForListFilter(params.departmentId)
+  const deptIds = params.departmentIds
+  if (deptIds && deptIds.length === 0) return []
   const keyword = params.projectKeyword.trim()
   if (!keyword) return []
   const k = `%${escapeForILike(keyword)}%`
@@ -520,8 +526,8 @@ export async function getWeeklyProjectPersonRange(
     .from(projects)
     .where(
       and(
-        inArray(projects.departmentId, deptIds),
         isNull(projects.deletedAt),
+        ...(deptIds ? [inArray(projects.departmentId, deptIds)] : []),
         or(ilike(projects.projectName, k), ilike(projects.projectNo, k))
       )
     )

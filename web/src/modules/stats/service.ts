@@ -1,10 +1,16 @@
 import { requireUser } from '@/core/auth'
-import { ValidationError } from '@/core/errors'
-import { getDepartmentIdsForListFilter, getDepartmentTree } from '@/modules/org/departments/repo'
+import { BusinessError, ValidationError } from '@/core/errors'
+import {
+  getAllActiveDepartmentIds,
+  getAdminDepartmentScopeIds,
+  getDepartmentIdsForListFilter,
+  getDepartmentTree,
+} from '@/modules/org/departments/repo'
+import type { CurrentUser } from '@/core/auth/current-user'
 import { getWeekOptionsUpToCurrent } from '@/modules/weekly/reports/repo'
 import { formatDepartmentOptionsForStats } from '@/modules/stats/lib/stats-department-options'
 import { getYearMonthOfCurrentWeek } from '@/modules/stats/lib/stats-year-month'
-import { assertDeptStatsAccess, assertStatsRole } from './lib/access'
+import { assertStatsRole } from './lib/access'
 import {
   getAttendanceDetails,
   getAttendanceProjectSummary,
@@ -30,23 +36,38 @@ function assertYearMonth(v: string): string {
 }
 
 function buildWeeklyParams(
-  departmentId: string,
+  departmentIds: string[] | null,
   weekCode: string,
   personNameKeyword?: string | null,
   projectKeyword?: string | null,
   projectStage?: string | null
 ) {
-  const d = departmentId?.trim()
   const w = weekCode?.trim()
-  if (!d) throw new ValidationError('请选择部门')
   if (!w) throw new ValidationError('请选择周次')
   return {
-    departmentId: d,
+    departmentIds,
     weekCode: w,
     personNameKeyword: personNameKeyword?.trim() || undefined,
     projectKeyword: projectKeyword?.trim() || undefined,
     projectStage: projectStage?.trim() || undefined,
   }
+}
+
+async function resolveStatsDepartmentIds(
+  user: CurrentUser,
+  selectedDepartmentId: string | null | undefined
+): Promise<string[] | null> {
+  assertStatsRole(user)
+  const did = selectedDepartmentId?.trim()
+  if (!did) throw new ValidationError('请选择部门')
+
+  const allowedIds = await getAdminDepartmentScopeIds(user)
+  if (did === 'all') return allowedIds ?? getAllActiveDepartmentIds()
+
+  if (allowedIds && !allowedIds.includes(did)) {
+    throw new BusinessError('无权查看该部门数据')
+  }
+  return getDepartmentIdsForListFilter(did)
 }
 
 export async function loadMyAttendanceDetails(yearMonth: string) {
@@ -57,20 +78,16 @@ export async function loadMyAttendanceDetails(yearMonth: string) {
 
 export async function loadAttendanceSummary(departmentId: string, yearMonth: string) {
   const user = await requireUser()
-  const did = departmentId?.trim()
-  if (!did) throw new ValidationError('请选择部门')
-  await assertDeptStatsAccess(user, did)
+  const departmentIds = await resolveStatsDepartmentIds(user, departmentId)
   const ym = assertYearMonth(yearMonth)
-  return getAttendanceSummary(did, ym)
+  return getAttendanceSummary(departmentIds, ym)
 }
 
 export async function loadAttendanceDetails(departmentId: string, yearMonth: string) {
   const user = await requireUser()
-  const did = departmentId?.trim()
-  if (!did) throw new ValidationError('请选择部门')
-  await assertDeptStatsAccess(user, did)
+  const departmentIds = await resolveStatsDepartmentIds(user, departmentId)
   const ym = assertYearMonth(yearMonth)
-  return getAttendanceDetails(did, ym)
+  return getAttendanceDetails(departmentIds, ym)
 }
 
 export async function loadAttendanceProjectSummary(
@@ -78,11 +95,9 @@ export async function loadAttendanceProjectSummary(
   yearMonth: string
 ) {
   const user = await requireUser()
-  const did = departmentId?.trim()
-  if (!did) throw new ValidationError('请选择部门')
-  await assertDeptStatsAccess(user, did)
+  const departmentIds = await resolveStatsDepartmentIds(user, departmentId)
   const ym = assertYearMonth(yearMonth)
-  return getAttendanceProjectSummary(did, ym)
+  return getAttendanceProjectSummary(departmentIds, ym)
 }
 
 export async function loadFilesStatsPage(
@@ -93,19 +108,13 @@ export async function loadFilesStatsPage(
   limit: number
 ) {
   const user = await requireUser()
-  assertStatsRole(user)
-
-  const did = departmentId?.trim() || null
-  if (user.role !== 'admin' && !did) {
-    throw new ValidationError('请选择部门')
-  }
-  if (user.role !== 'admin' && did) {
-    await assertDeptStatsAccess(user, did)
-  }
+  const departmentIds = await resolveStatsDepartmentIds(
+    user,
+    departmentId?.trim() || 'all'
+  )
 
   return listFilesStatsPage({
-    role: user.role,
-    departmentId: user.role === 'admin' ? did : did,
+    departmentIds,
     fileNameKeyword: fileNameKeyword?.trim() || null,
     projectKeyword: projectKeyword?.trim() || null,
     offset,
@@ -153,8 +162,8 @@ export async function loadWeeklyDeptByPerson(
   projectStage?: string | null
 ) {
   const user = await requireUser()
-  await assertDeptStatsAccess(user, departmentId)
-  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
+  const departmentIds = await resolveStatsDepartmentIds(user, departmentId)
+  const params = buildWeeklyParams(departmentIds, weekCode, personNameKeyword, projectKeyword, projectStage)
   return getWeeklyDeptByPerson(params)
 }
 
@@ -166,8 +175,8 @@ export async function loadWeeklyDeptByProject(
   projectStage?: string | null
 ) {
   const user = await requireUser()
-  await assertDeptStatsAccess(user, departmentId)
-  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
+  const departmentIds = await resolveStatsDepartmentIds(user, departmentId)
+  const params = buildWeeklyParams(departmentIds, weekCode, personNameKeyword, projectKeyword, projectStage)
   return getWeeklyDeptByProject(params)
 }
 
@@ -179,8 +188,8 @@ export async function loadWeeklyDeptDetails(
   projectStage?: string | null
 ) {
   const user = await requireUser()
-  await assertDeptStatsAccess(user, departmentId)
-  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
+  const departmentIds = await resolveStatsDepartmentIds(user, departmentId)
+  const params = buildWeeklyParams(departmentIds, weekCode, personNameKeyword, projectKeyword, projectStage)
   return getWeeklyDeptDetails(params)
 }
 
@@ -193,17 +202,14 @@ export async function loadWeeklyProjectPersonRange(input: {
   personNameKeyword?: string | null
 }) {
   const user = await requireUser()
-  const departmentId = input.departmentId?.trim()
-  if (!departmentId) throw new ValidationError('请选择部门')
-  await assertDeptStatsAccess(user, departmentId)
+  const departmentIds = await resolveStatsDepartmentIds(user, input.departmentId)
   const projectKeyword = input.projectKeyword?.trim()
-  if (!projectKeyword) throw new ValidationError('请输入项目名称或编号')
   const from = input.weekCodeFrom?.trim()
   const to = input.weekCodeTo?.trim()
   if (!from || !to) throw new ValidationError('请选择周区间')
   return getWeeklyProjectPersonRange({
-    departmentId,
-    projectKeyword,
+    departmentIds,
+    projectKeyword: projectKeyword || '',
     projectStage: input.projectStage?.trim() || undefined,
     weekCodeFrom: from,
     weekCodeTo: to,
@@ -217,16 +223,13 @@ export async function getWeeklyStatsPageData() {
   const tree = await getDepartmentTree()
   const weekOptions = await getWeekOptionsUpToCurrent(104)
 
-  let allowedIds: string[] | null = null
-  if (user.role !== 'admin' && user.departmentId) {
-    allowedIds = await getDepartmentIdsForListFilter(user.departmentId)
-  }
+  const allowedIds = await getAdminDepartmentScopeIds(user)
 
   const departmentOptions = formatDepartmentOptionsForStats(tree, allowedIds)
 
   const initialDepartmentId =
-    user.role === 'admin'
-      ? (departmentOptions[0]?.id ?? '')
+    departmentOptions.length > 1
+      ? 'all'
       : user.departmentId && allowedIds?.includes(user.departmentId)
         ? user.departmentId
         : (departmentOptions[0]?.id ?? '')
@@ -249,16 +252,13 @@ export async function getAttendanceStatsPageData() {
   assertStatsRole(user)
   const tree = await getDepartmentTree()
 
-  let allowedIds: string[] | null = null
-  if (user.role !== 'admin' && user.departmentId) {
-    allowedIds = await getDepartmentIdsForListFilter(user.departmentId)
-  }
+  const allowedIds = await getAdminDepartmentScopeIds(user)
 
   const departmentOptions = formatDepartmentOptionsForStats(tree, allowedIds)
 
   const initialDepartmentId =
-    user.role === 'admin'
-      ? (departmentOptions[0]?.id ?? '')
+    departmentOptions.length > 1
+      ? 'all'
       : user.departmentId && allowedIds?.includes(user.departmentId)
         ? user.departmentId
         : (departmentOptions[0]?.id ?? '')
@@ -277,15 +277,12 @@ export async function getFilesStatsPageData() {
   assertStatsRole(user)
   const tree = await getDepartmentTree()
 
-  let allowedIds: string[] | null = null
-  if (user.role !== 'admin' && user.departmentId) {
-    allowedIds = await getDepartmentIdsForListFilter(user.departmentId)
-  }
+  const allowedIds = await getAdminDepartmentScopeIds(user)
 
   const departmentOptions = formatDepartmentOptionsForStats(tree, allowedIds)
 
   const initialDepartmentId =
-    user.role === 'admin'
+    departmentOptions.length > 1
       ? 'all'
       : user.departmentId && allowedIds?.includes(user.departmentId)
         ? user.departmentId
@@ -294,6 +291,5 @@ export async function getFilesStatsPageData() {
   return {
     departmentOptions,
     initialDepartmentId,
-    isAdmin: user.role === 'admin',
   }
 }

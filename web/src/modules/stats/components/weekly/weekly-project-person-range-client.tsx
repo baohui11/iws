@@ -2,10 +2,6 @@
 
 import { showResultError } from '@/core/client/errors'
 import {
-  Button,
-  Input,
-  Select,
-  SelectItem,
   Spinner,
   Table,
   TableBody,
@@ -14,11 +10,17 @@ import {
   TableHeader,
   TableRow,
 } from '@heroui/react'
-import { Icon } from '@iconify/react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { loadWeeklyProjectPersonRangeAction } from '@/modules/stats/actions'
 import { ExportCsvButton } from '@/modules/stats/components/shared/export-csv-button'
-import { StatsLabelField } from '@/modules/stats/components/shared/stats-label-field'
+import {
+  StatsDepartmentSelect,
+  StatsFilterBar,
+  StatsProjectStageSelect,
+  StatsTextFilter,
+  StatsWeekSelect,
+  useDebouncedValue,
+} from '@/modules/stats/components/shared/stats-filter-controls'
 import type {
   DeptOption,
   WeekOptionLite,
@@ -56,17 +58,10 @@ export default function WeeklyProjectPersonRangeClient({
   const [projectKeyword, setProjectKeyword] = useState('')
   const [personKeyword, setPersonKeyword] = useState('')
   const [projectStage, setProjectStage] = useState('')
+  const debouncedProjectKeyword = useDebouncedValue(projectKeyword)
+  const debouncedPersonKeyword = useDebouncedValue(personKeyword)
   const [rows, setRows] = useState<WeeklyProjectPersonRangeRow[]>([])
   const [loading, setLoading] = useState(false)
-
-  const weekItems = useMemo(
-    () =>
-      weekOptions.map((week) => ({
-        id: week.week_code,
-        label: `${week.title_zh}（${week.range_line}）`,
-      })),
-    [weekOptions]
-  )
 
   const rangeWeeks = useMemo(
     () => weekRangeCodes(weekOptions, weekCodeFrom, weekCodeTo),
@@ -77,11 +72,11 @@ export default function WeeklyProjectPersonRangeClient({
     setLoading(true)
     const result = await loadWeeklyProjectPersonRangeAction({
       departmentId,
-      projectKeyword,
+      projectKeyword: debouncedProjectKeyword,
       projectStage: projectStage || null,
       weekCodeFrom,
       weekCodeTo,
-      personNameKeyword: personKeyword || null,
+      personNameKeyword: debouncedPersonKeyword || null,
     })
     setLoading(false)
     if (!result.success) {
@@ -92,12 +87,17 @@ export default function WeeklyProjectPersonRangeClient({
     setRows(result.data)
   }, [
     departmentId,
-    personKeyword,
-    projectKeyword,
+    debouncedPersonKeyword,
+    debouncedProjectKeyword,
     projectStage,
     weekCodeFrom,
     weekCodeTo,
   ])
+
+  useEffect(() => {
+    if (!departmentId || !weekCodeFrom || !weekCodeTo) return
+    void runQuery()
+  }, [departmentId, runQuery, weekCodeFrom, weekCodeTo])
 
   const csv = useMemo(() => {
     const headers = [
@@ -175,129 +175,34 @@ export default function WeeklyProjectPersonRangeClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-lg border border-default-200/80 bg-default-50/50 p-3">
-        <div className="flex flex-col gap-2.5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-2">
-          <StatsLabelField label="部门" className="lg:min-w-[min(100%,22rem)]">
-            <Select
-              aria-label="部门"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[12rem] max-w-[22rem]"
-              selectedKeys={departmentId ? new Set([departmentId]) : new Set()}
-              items={departmentOptions}
-              onSelectionChange={(keys) => {
-                const k = [...keys][0] as string | undefined
-                if (k) setDepartmentId(k)
-              }}
-            >
-              {(item) => (
-                <SelectItem key={item.id} textValue={item.label}>
-                  {item.label}
-                </SelectItem>
-              )}
-            </Select>
-          </StatsLabelField>
-
-          <StatsLabelField label="开始周" className="lg:min-w-[min(100%,22rem)]">
-            <Select
-              aria-label="开始周"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[14rem] max-w-[22rem]"
-              selectedKeys={weekCodeFrom ? new Set([weekCodeFrom]) : new Set()}
-              items={weekItems}
-              onSelectionChange={(keys) => {
-                const k = [...keys][0] as string | undefined
-                if (k) setWeekCodeFrom(k)
-              }}
-            >
-              {(item) => (
-                <SelectItem key={item.id} textValue={item.label}>
-                  {item.label}
-                </SelectItem>
-              )}
-            </Select>
-          </StatsLabelField>
-
-          <StatsLabelField label="结束周" className="lg:min-w-[min(100%,22rem)]">
-            <Select
-              aria-label="结束周"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[14rem] max-w-[22rem]"
-              selectedKeys={weekCodeTo ? new Set([weekCodeTo]) : new Set()}
-              items={weekItems}
-              onSelectionChange={(keys) => {
-                const k = [...keys][0] as string | undefined
-                if (k) setWeekCodeTo(k)
-              }}
-            >
-              {(item) => (
-                <SelectItem key={item.id} textValue={item.label}>
-                  {item.label}
-                </SelectItem>
-              )}
-            </Select>
-          </StatsLabelField>
-
-          <StatsLabelField label="项目" className="lg:min-w-[min(100%,20rem)]">
-            <Input
-              aria-label="项目名称或编号"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[14rem] max-w-[20rem]"
-              value={projectKeyword}
-              onValueChange={setProjectKeyword}
-              placeholder="名称或编号"
-            />
-          </StatsLabelField>
-
-          <StatsLabelField label="阶段" className="lg:min-w-[min(100%,12rem)]">
-            <Select
-              aria-label="项目阶段"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[10rem] max-w-[12rem]"
-              selectedKeys={new Set([projectStage || 'all'])}
-              onSelectionChange={(keys) => {
-                const k = [...keys][0] as string | undefined
-                setProjectStage(!k || k === 'all' ? '' : k)
-              }}
-            >
-              <SelectItem key="all">全部阶段</SelectItem>
-              <SelectItem key="实施阶段">实施阶段</SelectItem>
-              <SelectItem key="销售阶段">销售阶段</SelectItem>
-            </Select>
-          </StatsLabelField>
-
-          <StatsLabelField label="姓名" className="lg:min-w-[min(100%,16rem)]">
-            <Input
-              aria-label="姓名模糊"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[10rem] max-w-[16rem]"
-              value={personKeyword}
-              onValueChange={setPersonKeyword}
-              placeholder="模糊"
-            />
-          </StatsLabelField>
-
-          <div className="flex w-full justify-end lg:ml-auto lg:w-auto">
-            <Button
-              color="primary"
-              size="sm"
-              isLoading={loading}
-              isDisabled={!projectKeyword.trim()}
-              startContent={
-                <Icon icon="lucide:search" className="size-4" aria-hidden />
-              }
-              onPress={() => void runQuery()}
-            >
-              查询
-            </Button>
-          </div>
-        </div>
-      </div>
+      <StatsFilterBar>
+        <StatsDepartmentSelect
+          value={departmentId}
+          onChange={setDepartmentId}
+          departmentOptions={departmentOptions}
+          includeAll={departmentOptions.length > 1}
+        />
+        <StatsWeekSelect
+          label="开始周"
+          value={weekCodeFrom}
+          onChange={setWeekCodeFrom}
+          weekOptions={weekOptions}
+        />
+        <StatsWeekSelect
+          label="结束周"
+          value={weekCodeTo}
+          onChange={setWeekCodeTo}
+          weekOptions={weekOptions}
+        />
+        <StatsTextFilter
+          label="项目"
+          value={projectKeyword}
+          onChange={setProjectKeyword}
+          placeholder="名称或编号"
+        />
+        <StatsProjectStageSelect value={projectStage} onChange={setProjectStage} />
+        <StatsTextFilter label="姓名" value={personKeyword} onChange={setPersonKeyword} />
+      </StatsFilterBar>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <ExportCsvButton

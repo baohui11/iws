@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, inArray, isNull, lte, ne } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import {
+  departments,
   projects,
   users,
   weeklyReportItems,
@@ -16,7 +17,6 @@ import {
   formatWorkSlotsBriefZh,
   parseWorkDatesJson,
 } from '@/modules/weekly/lib/weekly-report-work-slots'
-import { getDepartmentIdsForListFilter } from '@/modules/org/departments/repo'
 import type { Json } from '@/types/json'
 import type {
   AttendanceDetailRow,
@@ -133,24 +133,89 @@ async function getWeekCodesOverlappingMonth(
   }))
 }
 
-async function projectIdsInDepartmentScope(departmentId: string): Promise<string[]> {
+async function projectIdsInDepartmentScope(
+  departmentIds: string[] | null
+): Promise<string[]> {
   const db = getDb()
-  const deptIds = await getDepartmentIdsForListFilter(departmentId)
+  if (departmentIds && departmentIds.length === 0) return []
+  const conds = [isNull(projects.deletedAt)]
+  if (departmentIds) conds.push(inArray(projects.departmentId, departmentIds))
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(inArray(projects.departmentId, deptIds), isNull(projects.deletedAt)))
+    .where(and(...conds))
 
   return rows.map((r) => r.id)
 }
 
+async function getUserInfoMap(
+  userIds: string[]
+): Promise<
+  Map<
+    string,
+    {
+      name: string
+      no: string | null
+      departmentName: string | null
+    }
+  >
+> {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))]
+  if (!uniqueIds.length) return new Map()
+
+  const db = getDb()
+  const userRows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      employeeNo: users.employeeNo,
+      departmentId: users.departmentId,
+    })
+    .from(users)
+    .where(inArray(users.id, uniqueIds))
+
+  const deptRows = await db
+    .select({
+      id: departments.id,
+      name: departments.name,
+      parentId: departments.parentId,
+    })
+    .from(departments)
+    .where(and(isNull(departments.deletedAt), eq(departments.isActive, true)))
+
+  const byDeptId = new Map(deptRows.map((d) => [d.id, d]))
+  function formatDepartmentPath(departmentId: string | null): string | null {
+    if (!departmentId) return null
+    const parts: string[] = []
+    const guard = new Set<string>()
+    let cur = byDeptId.get(departmentId)
+    while (cur && !guard.has(cur.id)) {
+      guard.add(cur.id)
+      parts.unshift(cur.name)
+      cur = cur.parentId ? byDeptId.get(cur.parentId) : undefined
+    }
+    return parts.length ? parts.join('-') : null
+  }
+
+  return new Map(
+    userRows.map((u) => [
+      u.id,
+      {
+        name: u.name?.trim() || '—',
+        no: u.employeeNo?.trim() ?? null,
+        departmentName: formatDepartmentPath(u.departmentId),
+      },
+    ])
+  )
+}
+
 export async function getAttendanceSummary(
-  departmentId: string,
+  departmentIds: string[] | null,
   yearMonth: string
 ): Promise<AttendanceSummaryRowPerson[]> {
   const { monthStart, monthEnd } = parseYearMonth(yearMonth)
-  const deptIds = await getDepartmentIdsForListFilter(departmentId)
-  const projectIds = await projectIdsInDepartmentScope(departmentId)
+  if (departmentIds && departmentIds.length === 0) return []
+  const projectIds = await projectIdsInDepartmentScope(departmentIds)
   if (!projectIds.length) return []
 
   const weekRows = await getWeekCodesOverlappingMonth(monthStart, monthEnd)
@@ -165,16 +230,24 @@ export async function getAttendanceSummary(
       id: users.id,
       name: users.name,
       employeeNo: users.employeeNo,
+      departmentId: users.departmentId,
     })
     .from(users)
-    .where(and(inArray(users.departmentId, deptIds), isNull(users.deletedAt)))
+    .where(
+      and(
+        isNull(users.deletedAt),
+        ...(departmentIds ? [inArray(users.departmentId, departmentIds)] : [])
+      )
+    )
     .orderBy(asc(users.name))
+  const userInfo = await getUserInfoMap(userList.map((u) => u.id))
 
   if (!weekCodes.length) {
     return userList.map((u) => ({
       user_id: u.id,
       user_name: u.name?.trim() || '—',
       employee_no: u.employeeNo?.trim() ?? null,
+      department_name: userInfo.get(u.id)?.departmentName ?? null,
       work_days: 0,
     }))
   }
@@ -216,16 +289,17 @@ export async function getAttendanceSummary(
     user_id: u.id,
     user_name: u.name?.trim() || '—',
     employee_no: u.employeeNo?.trim() ?? null,
+    department_name: userInfo.get(u.id)?.departmentName ?? null,
     work_days: Math.round((daysByUser.get(u.id) ?? 0) * 10) / 10,
   }))
 }
 
 export async function getAttendanceProjectSummary(
-  departmentId: string,
+  departmentIds: string[] | null,
   yearMonth: string
 ): Promise<AttendanceProjectSummaryRow[]> {
   const { monthStart, monthEnd } = parseYearMonth(yearMonth)
-  const projectIds = await projectIdsInDepartmentScope(departmentId)
+  const projectIds = await projectIdsInDepartmentScope(departmentIds)
   if (!projectIds.length) return []
 
   const weekRows = await getWeekCodesOverlappingMonth(monthStart, monthEnd)
@@ -278,16 +352,7 @@ export async function getAttendanceProjectSummary(
 
   if (!sumKey.size) return []
 
-  const userRows = await db
-    .select({ id: users.id, name: users.name, employeeNo: users.employeeNo })
-    .from(users)
-    .where(inArray(users.id, [...seenUserIds]))
-  const userName = new Map(
-    userRows.map((u) => [
-      u.id,
-      { name: u.name?.trim() || '—', no: u.employeeNo?.trim() ?? null },
-    ])
-  )
+  const userInfo = await getUserInfoMap([...seenUserIds])
 
   const projRows = await db
     .select({ id: projects.id, projectName: projects.projectName })
@@ -298,11 +363,12 @@ export async function getAttendanceProjectSummary(
   const rows: AttendanceProjectSummaryRow[] = []
   for (const [key, sum] of sumKey) {
     const [uid, pid] = key.split('\t')
-    const u = userName.get(uid)
+    const u = userInfo.get(uid)
     rows.push({
       user_id: uid,
       user_name: u?.name ?? '—',
       employee_no: u?.no ?? null,
+      department_name: u?.departmentName ?? null,
       project_id: pid,
       project_name: projName.get(pid) ?? null,
       work_days: Math.round(sum * 10) / 10,
@@ -321,11 +387,11 @@ export async function getAttendanceProjectSummary(
 }
 
 export async function getAttendanceDetails(
-  departmentId: string,
+  departmentIds: string[] | null,
   yearMonth: string
 ): Promise<AttendanceDetailRow[]> {
   const { monthStart, monthEnd } = parseYearMonth(yearMonth)
-  const projectIds = await projectIdsInDepartmentScope(departmentId)
+  const projectIds = await projectIdsInDepartmentScope(departmentIds)
   if (!projectIds.length) return []
 
   const weekRows = await getWeekCodesOverlappingMonth(monthStart, monthEnd)
@@ -368,16 +434,7 @@ export async function getAttendanceDetails(
   }
   if (!seenUserIds.size) return []
 
-  const userRows = await db
-    .select({ id: users.id, name: users.name, employeeNo: users.employeeNo })
-    .from(users)
-    .where(inArray(users.id, [...seenUserIds]))
-  const userName = new Map(
-    userRows.map((u) => [
-      u.id,
-      { name: u.name?.trim() || '—', no: u.employeeNo?.trim() ?? null },
-    ])
-  )
+  const userInfo = await getUserInfoMap([...seenUserIds])
 
   const projRows = await db
     .select({ id: projects.id, projectName: projects.projectName })
@@ -393,7 +450,7 @@ export async function getAttendanceDetails(
   }
 
   const sortable: Sortable[] = itemRows.map((it) => {
-    const u = userName.get(it.userId)
+    const u = userInfo.get(it.userId)
     const wm = weekMeta.get(it.weekCode)
     const desc = it.itemDesc?.trim()
     const content = desc ? desc : '—'
@@ -414,6 +471,7 @@ export async function getAttendanceDetails(
         id: String(it.id),
         user_name: un,
         employee_no: u?.no ?? null,
+        department_name: u?.departmentName ?? null,
         project_name: projName.get(it.projectId) ?? null,
         week_label: formatWeekTitleZh(it.weekCode),
         work_content: content,
@@ -486,6 +544,7 @@ export async function getMyAttendanceDetails(
       id: users.id,
       name: users.name,
       employeeNo: users.employeeNo,
+      departmentId: users.departmentId,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -494,6 +553,8 @@ export async function getMyAttendanceDetails(
   const userRow = userRows[0]
   const un = userRow?.name?.trim() || '—'
   const eno = userRow?.employeeNo?.trim() ?? null
+  const userInfo = await getUserInfoMap(userRow?.id ? [userRow.id] : [])
+  const departmentName = userRow?.id ? (userInfo.get(userRow.id)?.departmentName ?? null) : null
 
   const seenProjIds = new Set<string>()
   for (const it of itemRows) {
@@ -544,6 +605,7 @@ export async function getMyAttendanceDetails(
         id: String(it.id),
         user_name: un,
         employee_no: eno,
+        department_name: departmentName,
         project_name: pn,
         week_label,
         work_content: content,

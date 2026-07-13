@@ -2,9 +2,6 @@
 
 import { showResultError } from '@/core/client/errors'
 import {
-  Button,
-  Select,
-  SelectItem,
   Spinner,
   Table,
   TableBody,
@@ -13,13 +10,15 @@ import {
   TableHeader,
   TableRow,
 } from '@heroui/react'
-import { Icon } from '@iconify/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { loadAttendanceDetailsAction } from '@/modules/stats/actions'
 import type { AttendanceDetailRow } from '@/modules/stats/types'
 import { ExportCsvButton } from '@/modules/stats/components/shared/export-csv-button'
-import { StatsLabelField } from '@/modules/stats/components/shared/stats-label-field'
-import { StatsYearMonthSelect } from '@/modules/stats/components/shared/stats-year-month-select'
+import {
+  StatsDepartmentSelect,
+  StatsFilterBar,
+  StatsMonthFilter,
+} from '@/modules/stats/components/shared/stats-filter-controls'
 import type { DeptOption } from '@/modules/stats/types'
 
 export default function AttendanceDetailsClient({
@@ -50,12 +49,12 @@ export default function AttendanceDetailsClient({
 
   useEffect(() => {
     void runQuery()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [runQuery])
 
   const csv = useMemo(() => {
     const headers = [
       '姓名',
+      '所属部门',
       '工号',
       '项目',
       '周次',
@@ -66,6 +65,7 @@ export default function AttendanceDetailsClient({
     ]
     const body = rows.map((r) => [
       r.user_name,
+      r.department_name ?? '—',
       r.employee_no ?? '—',
       r.project_name ?? '—',
       r.week_label,
@@ -79,47 +79,15 @@ export default function AttendanceDetailsClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-lg border border-default-200/80 bg-default-50/50 p-3">
-        <div className="flex flex-col gap-2.5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-2">
-          <StatsLabelField label="部门" className="lg:min-w-[min(100%,22rem)]">
-            <Select
-              aria-label="部门"
-              size="sm"
-              variant="bordered"
-              className="w-full min-w-[12rem] max-w-[22rem]"
-              selectedKeys={departmentId ? new Set([departmentId]) : new Set()}
-              onSelectionChange={(keys) => {
-                const k = [...keys][0] as string | undefined
-                if (k) setDepartmentId(k)
-              }}
-              items={departmentOptions}
-            >
-              {(item) => (
-                <SelectItem key={item.id} textValue={item.label}>
-                  {item.label}
-                </SelectItem>
-              )}
-            </Select>
-          </StatsLabelField>
-
-          <StatsLabelField label="月份" className="lg:min-w-[min(100%,14rem)]">
-            <StatsYearMonthSelect value={yearMonth} onChange={setYearMonth} />
-          </StatsLabelField>
-
-          <div className="flex w-full justify-end lg:ml-auto lg:w-auto">
-            <Button
-              color="primary"
-              size="sm"
-              className="font-medium"
-              isLoading={loading}
-              startContent={<Icon icon="lucide:search" className="size-4" aria-hidden />}
-              onPress={() => void runQuery()}
-            >
-              查询
-            </Button>
-          </div>
-        </div>
-      </div>
+      <StatsFilterBar>
+        <StatsDepartmentSelect
+          value={departmentId}
+          onChange={setDepartmentId}
+          departmentOptions={departmentOptions}
+          includeAll={departmentOptions.length > 1}
+        />
+        <StatsMonthFilter value={yearMonth} onChange={setYearMonth} />
+      </StatsFilterBar>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <ExportCsvButton
@@ -147,6 +115,7 @@ export default function AttendanceDetailsClient({
           >
             <TableHeader>
               <TableColumn>姓名</TableColumn>
+              <TableColumn>所属部门</TableColumn>
               <TableColumn>工号</TableColumn>
               <TableColumn>项目</TableColumn>
               <TableColumn>周次</TableColumn>
@@ -159,6 +128,9 @@ export default function AttendanceDetailsClient({
               {rows.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="whitespace-nowrap font-medium">{r.user_name}</TableCell>
+                  <TableCell className="min-w-[160px] max-w-[min(320px,35vw)] text-default-600">
+                    <span className="line-clamp-2">{r.department_name ?? '—'}</span>
+                  </TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums text-default-600">
                     {r.employee_no ?? '—'}
                   </TableCell>

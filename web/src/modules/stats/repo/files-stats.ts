@@ -1,28 +1,28 @@
 import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import { departments, files, projects, users } from '@/core/db/schema'
-import { getDepartmentIdsForListFilter } from '@/modules/org/departments/repo'
-import type { SystemRole } from '@/core/auth/current-user'
 import type { FileStatsPaged, FileStatsRow } from '../types'
 
 function escapeForILike(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
-async function projectIdsInDepartmentSubtree(departmentId: string): Promise<string[]> {
+async function projectIdsInDepartmentSubtree(
+  departmentIds: string[] | null
+): Promise<string[] | null> {
   const db = getDb()
-  const deptIds = await getDepartmentIdsForListFilter(departmentId)
+  if (!departmentIds) return null
+  if (departmentIds.length === 0) return []
   const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(inArray(projects.departmentId, deptIds), isNull(projects.deletedAt)))
+    .where(and(inArray(projects.departmentId, departmentIds), isNull(projects.deletedAt)))
 
   return rows.map((r) => r.id)
 }
 
 export interface ListFilesStatsParams {
-  role: SystemRole | null
-  departmentId: string | null
+  departmentIds: string[] | null
   fileNameKeyword?: string | null
   projectKeyword?: string | null
   offset: number
@@ -36,19 +36,9 @@ export async function listFilesStatsPage(
   const safeLimit = Math.min(Math.max(1, params.limit), 100)
   const offset = Math.max(0, params.offset)
 
-  let baseProjectIds: string[] | null = null
-  if (params.role === 'admin' && !params.departmentId?.trim()) {
-    baseProjectIds = null
-  } else {
-    const did = params.departmentId?.trim()
-    if (!did) {
-      return { rows: [], total: 0, hasMore: false }
-    }
-    const ids = await projectIdsInDepartmentSubtree(did)
-    if (!ids.length) {
-      return { rows: [], total: 0, hasMore: false }
-    }
-    baseProjectIds = ids
+  const baseProjectIds = await projectIdsInDepartmentSubtree(params.departmentIds)
+  if (baseProjectIds && !baseProjectIds.length) {
+    return { rows: [], total: 0, hasMore: false }
   }
 
   let scopedIds: string[] | null = baseProjectIds

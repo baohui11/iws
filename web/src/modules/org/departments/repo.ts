@@ -132,6 +132,15 @@ export async function getDepartmentIdsForListFilter(
   return ids
 }
 
+export async function getAllActiveDepartmentIds(): Promise<string[]> {
+  const db = getDb()
+  const rows = await db
+    .select({ id: departments.id })
+    .from(departments)
+    .where(and(isNull(departments.deletedAt), eq(departments.isActive, true)))
+  return rows.map((row) => row.id)
+}
+
 export async function getAdminDepartmentScopeIds(
   user: Pick<CurrentUser, 'id' | 'role' | 'departmentId'>,
   options: { includeInactive?: boolean } = {}

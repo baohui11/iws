@@ -36,7 +36,7 @@ export default function WeekSearchSelect<T extends WeekSearchSelectOption>({
 }: WeekSearchSelectProps<T>) {
   return (
     <SearchableSelect
-      label={label}
+      label={label || undefined}
       placeholder={placeholder}
       value={value}
       onChange={(weekCode) => {

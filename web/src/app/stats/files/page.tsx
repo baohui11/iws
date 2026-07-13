@@ -2,14 +2,12 @@ import FilesStatsClient from '@/modules/stats/components/files/files-stats-clien
 import { getFilesStatsPageData } from '@/modules/stats/service'
 
 export default async function FilesStatsPage() {
-  const { departmentOptions, initialDepartmentId, isAdmin } =
-    await getFilesStatsPageData()
+  const { departmentOptions, initialDepartmentId } = await getFilesStatsPageData()
 
   return (
     <FilesStatsClient
       departmentOptions={departmentOptions}
       initialDepartmentId={initialDepartmentId}
-      isAdmin={isAdmin}
     />
   )
 }

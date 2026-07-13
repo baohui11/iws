@@ -87,6 +87,7 @@ export interface AttendanceSummaryRowPerson {
   user_id: string
   user_name: string
   employee_no: string | null
+  department_name: string | null
   work_days: number
 }
 
@@ -95,6 +96,7 @@ export interface AttendanceDetailRow {
   id: string
   user_name: string
   employee_no: string | null
+  department_name: string | null
   project_name: string | null
   week_label: string
   work_content: string
@@ -108,6 +110,7 @@ export interface AttendanceProjectSummaryRow {
   user_id: string
   user_name: string
   employee_no: string | null
+  department_name: string | null
   project_id: string
   project_name: string | null
   work_days: number
