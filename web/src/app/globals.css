@@ -16,6 +16,16 @@ body {
   height: 100%;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html {
+    overflow-y: scroll;
+  }
+}
+
 .file-preview-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklab, var(--color-default-500) 58%, transparent)

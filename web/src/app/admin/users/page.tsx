@@ -1,3 +1,4 @@
+import PageShell from '@/components/common/page-shell'
 import {
   getAdminDepartmentScopeIds,
   getDepartmentTree,
@@ -27,12 +28,9 @@ export default async function UsersPage() {
   const initialTotal = usersResult.total
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">用户管理</h1>
-        <p className="text-foreground/50 mt-1 text-sm">
-          查看 OA 同步用户，维护平台角色与生效状态
-        </p>
       </div>
 
       <div className="rounded-large border-divider bg-content1 shadow-small border p-6">
@@ -42,6 +40,6 @@ export default async function UsersPage() {
           departments={departments}
         />
       </div>
-    </div>
+    </PageShell>
   )
 }

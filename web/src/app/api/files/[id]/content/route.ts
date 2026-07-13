@@ -65,7 +65,7 @@ export async function GET(
     return NextResponse.json({ message: '文件不存在' }, { status: 404 })
   }
 
-  if (!canAccessFileBinary(user, row)) {
+  if (!(await canAccessFileBinary(user, row))) {
     return NextResponse.json({ message: '无权预览该文件' }, { status: 403 })
   }
 

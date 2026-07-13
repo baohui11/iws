@@ -28,7 +28,9 @@ interface SearchableSelectProps {
   className?: string
   classNames?: {
     base?: string
+    inputWrapper?: string
     listboxWrapper?: string
+    popoverContent?: string
     selectorButton?: string
     clearButton?: string
   }

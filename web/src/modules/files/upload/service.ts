@@ -20,7 +20,6 @@ import {
 } from '@/core/storage/constants'
 import {
   createProjectFileUploadUrl,
-  decryptClientFileToBuffer,
   getProjectFileObjectInfo,
   uploadProjectFileBuffer,
 } from '@/core/storage/server'
@@ -47,6 +46,10 @@ function parseFormBool(v: FormDataEntryValue | null): boolean {
 
 const DIRECT_UPLOAD_TOKEN_MAX_AGE = '15m'
 const DIRECT_UPLOAD_URL_EXPIRES_SECONDS = 10 * 60
+
+async function fileToBuffer(file: File): Promise<Buffer> {
+  return Buffer.from(await file.arrayBuffer())
+}
 
 export interface BeginReferenceFileUploadInput {
   projectId: string
@@ -238,12 +241,13 @@ function normalizeMimeType(value: string | null | undefined): string {
 async function assertUploadedObjectMatches(input: {
   objectPath: string
   fileSize: number
-}): Promise<void> {
+}): Promise<{ storedFileSize: number }> {
   const info = await getProjectFileObjectInfo(input.objectPath)
   if (!info) throw new ValidationError('文件尚未上传完成')
-  if (info.contentLength !== input.fileSize) {
-    throw new ValidationError('上传文件大小与申请信息不一致')
+  if (!info.contentLength || info.contentLength <= 0) {
+    throw new ValidationError('上传文件为空或无法确认文件大小')
   }
+  return { storedFileSize: info.contentLength }
 }
 
 async function assertMemberActiveProjectStage(
@@ -391,7 +395,7 @@ export async function completeReferenceFileUpload(uploadToken: string) {
   if (payload.userId !== user.id) throw new ValidationError('上传用户不一致')
 
   await assertMemberActiveProjectStage(user.id, payload.projectId, payload.projectStage)
-  await assertUploadedObjectMatches({
+  const uploaded = await assertUploadedObjectMatches({
     objectPath: payload.objectPath,
     fileSize: payload.fileSize,
   })
@@ -409,7 +413,7 @@ export async function completeReferenceFileUpload(uploadToken: string) {
     id: payload.fileId,
     projectId: payload.projectId,
     fileName: payload.fileName,
-    fileSize: payload.fileSize,
+    fileSize: uploaded.storedFileSize,
     fileExt: payload.fileExt,
     mimeType: payload.mimeType,
     sourceStorageKey: payload.objectPath,
@@ -621,7 +625,7 @@ export async function completeDeliverableFileUpload(uploadToken: string) {
   if (payload.kind !== 'deliverable') throw new ValidationError('上传类型不一致')
   if (payload.userId !== user.id) throw new ValidationError('上传用户不一致')
 
-  await assertUploadedObjectMatches({
+  const uploaded = await assertUploadedObjectMatches({
     objectPath: payload.objectPath,
     fileSize: payload.fileSize,
   })
@@ -645,7 +649,7 @@ export async function completeDeliverableFileUpload(uploadToken: string) {
     id: payload.fileId,
     projectId: prepared.projectId,
     fileName: prepared.fileNameForDb,
-    fileSize: payload.fileSize,
+    fileSize: uploaded.storedFileSize,
     fileExt: prepared.extForStorage,
     mimeType: payload.mimeType,
     sourceStorageKey: payload.objectPath,
@@ -728,8 +732,7 @@ export async function uploadReferenceFile(formData: FormData) {
   }
 
   const mime = file.type?.trim() || 'application/octet-stream'
-  const extForTemp = extLower ?? 'bin'
-  const processed = await decryptClientFileToBuffer(file, extForTemp)
+  const processed = await fileToBuffer(file)
   if (processed.length === 0) throw new ValidationError('处理后的文件为空')
 
   const fileId = randomUUID()
@@ -916,8 +919,7 @@ export async function uploadDeliverableFile(formData: FormData) {
   const objectPath = `${projectId}/deliverable/${versionGroupId}/${fileId}.${extForStorage}`
 
   const mime = file.type?.trim() || 'application/octet-stream'
-  const extForTemp = extLower ?? 'bin'
-  const processed = await decryptClientFileToBuffer(file, extForTemp)
+  const processed = await fileToBuffer(file)
   if (processed.length === 0) throw new ValidationError('处理后的文件为空')
 
   await uploadProjectFileBuffer({

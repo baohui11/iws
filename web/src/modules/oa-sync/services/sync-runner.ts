@@ -7,7 +7,31 @@ import {
   createOaSyncRun,
   failOaSyncRun,
 } from '../repo/sync-log.repo'
-import type { OaLoggedSyncResult, OaSyncScope, OaSyncTrigger } from '../types'
+import type {
+  OaLoggedSyncResult,
+  OaProjectRoleSyncStats,
+  OaProjectSyncStats,
+  OaSyncScope,
+  OaSyncStats,
+  OaSyncTrigger,
+  OaUserSyncStats,
+} from '../types'
+
+function departmentWarningCount(result: OaSyncStats): number {
+  return result.missingParents.length
+}
+
+function userWarningCount(result: OaUserSyncStats): number {
+  return result.missingDepartments.length
+}
+
+function projectWarningCount(result: OaProjectSyncStats): number {
+  return result.missingDepartments.length
+}
+
+function projectRoleWarningCount(result: OaProjectRoleSyncStats): number {
+  return result.missingProjects.length + result.missingUsers.length
+}
 
 export async function runLoggedOaSync(
   scope: OaSyncScope,
@@ -58,4 +82,15 @@ export async function runLoggedOaSync(
     await failOaSyncRun(runId, e)
     throw e
   }
+}
+
+export async function runLoggedOaSyncAll(
+  trigger: OaSyncTrigger
+): Promise<OaLoggedSyncResult[]> {
+  return [
+    await runLoggedOaSync('departments', trigger),
+    await runLoggedOaSync('users', trigger),
+    await runLoggedOaSync('projects', trigger),
+    await runLoggedOaSync('project_roles', trigger),
+  ]
 }

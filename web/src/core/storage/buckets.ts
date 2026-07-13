@@ -10,21 +10,27 @@ export function getProjectFilesBucket(): string {
 
 /**
  * DB `users.avatar_url` 仅存对象路径（如 `userId/uuid.jpg`）。
- * 头像桶为公开读，直接拼浏览器可访问的 URL（路径风格）。
+ * 浏览器统一访问站内代理路由，避免依赖公开桶或加密网关直链。
  */
 export function resolveAvatarUrl(
   stored: string | null | undefined
 ): string | undefined {
   if (stored == null || !String(stored).trim()) return undefined
-  const base = (
-    process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT
-  )?.replace(/\/$/, '')
-  if (!base) return undefined
-  const segments = String(stored)
-    .trim()
+  const value = String(stored).trim()
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('/api/avatars/') ||
+    value.startsWith('blob:') ||
+    value.startsWith('data:')
+  ) {
+    return value
+  }
+  const segments = value
     .split('/')
     .filter(Boolean)
     .map((seg) => encodeURIComponent(seg))
     .join('/')
-  return `${base}/${getAvatarBucket()}/${segments}`
+  if (!segments) return undefined
+  return `/api/avatars/${segments}`
 }

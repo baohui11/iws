@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import MyApprovalsList from '@/modules/weekly/components/reports/my-approvals-list'
 import { WEEKLY_REPORTS_PAGE_SIZE } from '@/constants/weekly-reports-list'
@@ -44,7 +45,7 @@ export default async function WeeklyReportApprovalsPage() {
   ])
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <SubpageHeader showBack title="我的审批" />
 
       <div className="rounded-2xl border border-default-200/80 bg-content1 p-5 shadow-sm md:p-6">
@@ -60,6 +61,6 @@ export default async function WeeklyReportApprovalsPage() {
           />
         </Suspense>
       </div>
-    </div>
+    </PageShell>
   )
 }

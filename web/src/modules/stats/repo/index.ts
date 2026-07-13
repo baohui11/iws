@@ -15,5 +15,7 @@ export {
   getWeeklyDeptByPerson,
   getWeeklyDeptByProject,
   getWeeklyDeptDetails,
+  getWeeklyProjectPersonRange,
+  type WeeklyProjectPersonRangeParams,
   type WeeklyDeptStatsParams,
 } from './weekly-dept-stats'

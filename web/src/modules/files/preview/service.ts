@@ -11,10 +11,12 @@ import {
   PREVIEW_EXCEL_EXT,
   resolvePreviewStrategy,
 } from '@/modules/files/lib/file-preview-kind'
-import { canAccessFileBinary } from '../preview/access'
+import { resolveFileAccess } from '@/modules/files/access'
 import {
   getFileRowForPreview,
   getLatestPreviewResultData,
+  listFileChunksForPreview,
+  listFileVersionsForPreview,
 } from '../preview/repo'
 import {
   getFileRecommendStats,
@@ -65,21 +67,62 @@ export async function loadFilePreview(
   const row = await getFileRowForPreview(id)
   if (!row) throw new NotFoundError('文件不存在')
 
-  const canPreview = canAccessFileBinary(user, row)
+  const access = await resolveFileAccess(user, {
+    id: row.id,
+    uploader_id: row.uploader_id,
+    project_id: row.project_id,
+    project_stage: row.project_stage,
+    department_id: row.department_id,
+    is_confidential: row.is_confidential,
+  })
+  if (!access.canViewMetadata) throw new NotFoundError('文件不存在')
+
+  const canPreview = access.canAccessContent
+  const [versions, chunkData] = await Promise.all([
+    listFileVersionsForPreview(row.version_group_id),
+    canPreview
+      ? listFileChunksForPreview(id)
+      : Promise.resolve({ chunks: [], total: 0 }),
+  ])
+  const baseInfo = {
+    fileId: id,
+    fileName: row.file_name,
+    originalFileName: row.original_file_name,
+    fileSize: row.file_size,
+    fileExt: row.file_ext,
+    mimeType: row.mime_type,
+    createdAt: row.created_at,
+    projectId: row.project_id,
+    projectName: row.project_name,
+    projectNo: row.project_no,
+    departmentName: row.department_name,
+    projectStage: row.project_stage,
+    isConfidential: row.is_confidential,
+    isDeliverable: row.is_deliverable,
+    fileSource: row.file_source,
+    salesFileTag: row.sales_file_tag,
+    businessType: row.business_type,
+    contractDeliverableName: row.contract_deliverable_name,
+    versionGroupId: row.version_group_id,
+    versionNo: row.version_no,
+    versionLabel: row.version_label,
+    isLatest: row.is_latest,
+    uploaderName: row.uploader_name,
+    viewerName: user.name || user.email || user.id,
+    processStatus: {
+      preview: row.preview_status,
+      parse: row.parse_status,
+      index: row.index_status,
+    },
+    versions,
+    chunks: chunkData.chunks,
+    chunkTotal: chunkData.total,
+  }
+
   if (!canPreview) {
     return {
-      fileId: id,
-      fileName: row.file_name,
-      fileSize: row.file_size,
-      fileExt: row.file_ext,
+      ...baseInfo,
       canPreview: false,
-      uploaderName: row.uploader_name,
-      viewerName: user.name || user.email || user.id,
-      processStatus: {
-        preview: row.preview_status,
-        parse: row.parse_status,
-        index: row.index_status,
-      },
       payload: {
         kind: 'unsupported',
         message:
@@ -216,18 +259,8 @@ export async function loadFilePreview(
   const comments = await listTopLevelFileComments(id)
 
   return {
-    fileId: id,
-    fileName: row.file_name,
-    fileSize: row.file_size,
-    fileExt: row.file_ext,
+    ...baseInfo,
     canPreview: true,
-    uploaderName: row.uploader_name,
-    viewerName: user.name || user.email || user.id,
-    processStatus: {
-      preview: row.preview_status,
-      parse: row.parse_status,
-      index: row.index_status,
-    },
     payload,
     interactions,
     recommendStats,

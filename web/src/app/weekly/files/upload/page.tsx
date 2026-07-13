@@ -1,3 +1,4 @@
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import WeeklyFileUploadPageClient from '@/modules/files/components/upload/weekly-file-upload-page-client'
 import { requireUser } from '@/core/auth'
@@ -26,7 +27,7 @@ export default async function WeeklyProjectFileUploadPage({
   const projects = await listMemberActiveProjectsForUpload(user.id)
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pb-12 pt-6 sm:px-6">
+    <PageShell width="lg">
       <SubpageHeader showBack title="上传项目文件" />
       <div className="mt-1 rounded-2xl border border-default-200/60 bg-content1/80 p-4 shadow-sm sm:p-6">
         <WeeklyFileUploadPageClient
@@ -38,6 +39,6 @@ export default async function WeeklyProjectFileUploadPage({
           linkTargetKey={linkTargetKey}
         />
       </div>
-    </div>
+    </PageShell>
   )
 }

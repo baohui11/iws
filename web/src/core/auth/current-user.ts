@@ -6,6 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import { departments, users } from '@/core/db/schema'
 import { AuthError } from '@/core/errors'
+import { resolveAvatarUrl } from '@/core/storage/buckets'
 import type { SystemRoleValue } from '@/constants/system-roles'
 import { getSessionUserId } from './session'
 
@@ -23,7 +24,7 @@ export interface CurrentUser {
   departmentName: string | null
   position: string | null
   role: SystemRole | null
-  /** 头像在对象存储中的对象路径 */
+  /** 头像浏览器可访问地址 */
   avatarUrl: string | null
 }
 
@@ -66,7 +67,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     departmentName: row.departmentName ?? null,
     position: row.position,
     role: row.role,
-    avatarUrl: row.avatarUrl,
+    avatarUrl: resolveAvatarUrl(row.avatarUrl) ?? null,
   }
 }
 

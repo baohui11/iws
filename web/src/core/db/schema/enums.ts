@@ -12,6 +12,7 @@ export const fileProcessStage = pgEnum('file_process_stage', [
   'preview',
   'parse',
   'index',
+  'embed',
 ])
 
 export const fileSourceType = pgEnum('file_source_type', [

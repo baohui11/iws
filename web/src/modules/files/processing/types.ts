@@ -1,4 +1,4 @@
-export type FileProcessStage = 'preview' | 'parse' | 'index'
+export type FileProcessStage = 'preview' | 'parse' | 'index' | 'embed'
 
 export type FilePipelineStatus =
   | 'pending'

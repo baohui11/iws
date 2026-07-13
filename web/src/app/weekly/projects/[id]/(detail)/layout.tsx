@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import { ProjectDetailProvider } from '@/modules/weekly/components/projects/project-detail-context'
 import { ProjectStageShell } from '@/modules/weekly/components/projects/project-stage-shell'
@@ -99,7 +100,7 @@ export default async function WeeklyProjectDetailLayout({
   })
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-8">
+    <PageShell width="lg">
       <SubpageHeader
         showBack
         title={project.project_name ?? project.project_no ?? '项目详情'}
@@ -119,6 +120,6 @@ export default async function WeeklyProjectDetailLayout({
           <ProjectStageShell projectId={id}>{children}</ProjectStageShell>
         </ProjectDetailProvider>
       </div>
-    </div>
+    </PageShell>
   )
 }

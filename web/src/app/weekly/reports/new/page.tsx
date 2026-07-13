@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import WeeklyNewReportExemptNotice from '@/modules/weekly/components/reports/weekly-new-report-exempt-notice'
 import WeeklyReportFillForm from '@/modules/weekly/components/reports/weekly-report-fill-form'
@@ -94,7 +95,7 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
     const returnToHref = `/weekly/reports/new?projectId=${encodeURIComponent(projectId)}&weekCode=${encodeURIComponent(weekCode)}&projectStage=${encodeURIComponent(projectStage)}`
 
     return (
-      <div className="container mx-auto max-w-3xl px-4 py-6 sm:py-8">
+      <PageShell width="sm">
         <WeeklyReportFillForm
           initialPayload={payload}
           returnToHref={returnToHref}
@@ -108,12 +109,12 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
               : null
           }
         />
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <SubpageHeader showBack title="新建周报" />
       {projects.length === 0 ? (
         <p className="rounded-xl border border-dashed border-default-200 py-12 text-center text-sm text-default-500">
@@ -128,6 +129,6 @@ export default async function WeeklyNewReportPage({ searchParams }: PageProps) {
           initialProjectStage={projectStage}
         />
       )}
-    </div>
+    </PageShell>
   )
 }

@@ -2,7 +2,7 @@
 
 import { Button } from '@heroui/react'
 import React from 'react'
-import SetPasswordForm from '@/modules/auth/components/set-password-form'
+import ChangePasswordForm from './change-password-form'
 
 export default function ProfilePasswordSection() {
   const [expanded, setExpanded] = React.useState(false)
@@ -25,7 +25,7 @@ export default function ProfilePasswordSection() {
               收起
             </Button>
           </div>
-          <SetPasswordForm variant="embedded" onSuccess={() => setExpanded(false)} />
+          <ChangePasswordForm onSuccess={() => setExpanded(false)} />
         </div>
       )}
     </div>

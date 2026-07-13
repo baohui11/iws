@@ -1,16 +1,20 @@
 import { getCurrentUser } from '@/core/auth'
+import HomeSearchBox from '@/components/home-search-box'
 
 export default async function HomePage() {
   const user = await getCurrentUser()
+  const name = user?.name || user?.email || '访客'
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-bold">
-        欢迎，{user?.name || user?.email || '访客'}
-      </h1>
-      <p className="text-default-500 mt-2 text-sm">
-        中大咨询集团周报文件系统。请从顶部导航进入「项目周报」「搜索文件」等功能。
-      </p>
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 pt-24 md:px-8 md:pt-32">
+      <div className="mx-auto w-full max-w-3xl">
+        <p className="text-sm text-default-500">欢迎，{name}</p>
+        <h1 className="mt-3 text-4xl font-semibold tracking-normal text-foreground md:text-5xl">
+          搜索项目文件
+        </h1>
+
+        <HomeSearchBox />
+      </div>
     </div>
   )
 }

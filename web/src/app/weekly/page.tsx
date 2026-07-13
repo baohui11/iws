@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import { requireUser } from '@/core/auth'
 import {
@@ -103,9 +104,9 @@ export default async function WeeklyDashboardPage() {
   ])
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <SubpageHeader title="工作台" className="mb-0" />
+        <SubpageHeader title="项目周报" className="mb-0" />
         <div className="flex flex-wrap gap-2">
           <ActionLink href={buildNewReportPickerHref()} primary>
             新增周报
@@ -228,6 +229,6 @@ export default async function WeeklyDashboardPage() {
           <RecentReportsList initialRows={recentReports.rows} />
         </section>
       </div>
-    </div>
+    </PageShell>
   )
 }

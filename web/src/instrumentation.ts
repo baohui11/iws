@@ -15,10 +15,15 @@ export async function register() {
     const { FILE_PROCESSING_QUEUE } = await import(
       '@/modules/files/processing/types'
     )
-    const { OA_SYNC_QUEUE } = await import('@/modules/oa-sync/queue/queue')
     await ensurePgmqQueue(FILE_PROCESSING_QUEUE)
-    await ensurePgmqQueue(OA_SYNC_QUEUE)
   } catch (e) {
     console.warn('[queue] pgmq initialization skipped', e)
+  }
+
+  try {
+    const { startOaSyncScheduler } = await import('@/modules/oa-sync/scheduler')
+    startOaSyncScheduler()
+  } catch (e) {
+    console.warn('[oa-sync-scheduler] initialization skipped', e)
   }
 }

@@ -19,7 +19,7 @@ async function requirePreviewFileAccess(fileId: string) {
   const user = await requireUser()
   const row = await getFileRowForPreview(fileId)
   if (!row) throw new NotFoundError('文件不存在')
-  if (!canAccessFileBinary(user, row)) {
+  if (!(await canAccessFileBinary(user, row))) {
     throw new BusinessError('无权操作该文件')
   }
   return { user, row }

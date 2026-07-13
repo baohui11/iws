@@ -10,8 +10,20 @@ import {
   type FilePipelineStatus,
 } from './types'
 
+const STAGE_PRIORITY: Record<FileProcessStage, number> = {
+  preview: 100,
+  parse: 50,
+  index: 10,
+  embed: 0,
+}
+
 function isFileProcessStage(value: unknown): value is FileProcessStage {
-  return value === 'preview' || value === 'parse' || value === 'index'
+  return (
+    value === 'preview' ||
+    value === 'parse' ||
+    value === 'index' ||
+    value === 'embed'
+  )
 }
 
 function isFileProcessQueuePayload(
@@ -65,15 +77,48 @@ export async function enqueueInitialFileProcessTasks(input: {
         fileId: input.fileId,
         stage: 'preview',
         status: 'pending',
+        priority: STAGE_PRIORITY.preview,
         input: input.previewInput,
       },
       {
         fileId: input.fileId,
         stage: 'parse',
         status: 'pending',
+        priority: STAGE_PRIORITY.parse,
         input: input.parseInput,
       },
     ])
+    .onConflictDoNothing()
+    .returning({
+      id: fileProcessTasks.id,
+      fileId: fileProcessTasks.fileId,
+      stage: fileProcessTasks.stage,
+    })
+
+  await Promise.all(
+    rows
+      .sort((a, b) => STAGE_PRIORITY[b.stage] - STAGE_PRIORITY[a.stage])
+      .map((row) =>
+        publishTaskMessage({
+          taskId: row.id,
+          fileId: row.fileId,
+          stage: row.stage,
+        })
+      )
+  )
+}
+
+export async function enqueueIndexTask(fileId: string, input?: Json): Promise<void> {
+  const db = getDb()
+  const rows = await db
+    .insert(fileProcessTasks)
+    .values({
+      fileId,
+      stage: 'index',
+      status: 'pending',
+      priority: STAGE_PRIORITY.index,
+      input,
+    })
     .onConflictDoNothing()
     .returning({
       id: fileProcessTasks.id,
@@ -92,14 +137,15 @@ export async function enqueueInitialFileProcessTasks(input: {
   )
 }
 
-export async function enqueueIndexTask(fileId: string, input?: Json): Promise<void> {
+export async function enqueueEmbedTask(fileId: string, input?: Json): Promise<void> {
   const db = getDb()
   const rows = await db
     .insert(fileProcessTasks)
     .values({
       fileId,
-      stage: 'index',
+      stage: 'embed',
       status: 'pending',
+      priority: STAGE_PRIORITY.embed,
       input,
     })
     .onConflictDoNothing()
@@ -188,6 +234,10 @@ export async function updateFileStageStatus(input: {
   if (input.stage === 'index') {
     patch.indexStatus = input.status
     patch.indexError = input.errorMessage
+  }
+  if (input.stage === 'embed') {
+    patch.embeddingStatus = input.status
+    patch.embeddingError = input.errorMessage
   }
 
   await db.update(files).set(patch).where(eq(files.id, input.fileId))

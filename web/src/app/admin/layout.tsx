@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { AdminSidebar } from '@/components/admin/admin-sidebar'
 import { getCurrentUser } from '@/core/auth'
 import { canAccessAdminNav } from '@/core/auth/nav-access'
 
@@ -13,10 +12,5 @@ export default async function AdminLayout({
   if (!user) redirect('/login')
   if (!canAccessAdminNav(user.role)) redirect('/')
 
-  return (
-    <div className="flex min-h-0 w-full flex-1 flex-col md:flex-row md:items-stretch">
-      <AdminSidebar role={user.role} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
-    </div>
-  )
+  return <>{children}</>
 }

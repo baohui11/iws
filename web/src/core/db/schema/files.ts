@@ -7,6 +7,7 @@ import {
   boolean,
   jsonb,
   timestamp,
+  customType,
   unique,
   check,
   index,
@@ -20,7 +21,19 @@ import {
   projectStage,
 } from './enums'
 import { projects, contractDeliverables } from './projects'
-import { users } from './org'
+import { departments, users } from './org'
+
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return 'tsvector'
+  },
+})
+
+const vector1536 = customType<{ data: number[] | null }>({
+  dataType() {
+    return 'vector(1536)'
+  },
+})
 
 export const files = pgTable(
   'files',
@@ -29,11 +42,16 @@ export const files = pgTable(
     projectId: uuid()
       .notNull()
       .references(() => projects.id, { onDelete: 'restrict' }),
+    departmentId: uuid().references(() => departments.id, {
+      onDelete: 'set null',
+    }),
     fileName: text().notNull(),
+    originalFileName: text(),
     fileSize: bigint({ mode: 'number' }).notNull(),
     fileExt: text(),
     mimeType: text(),
     sourceStorageKey: text().notNull(),
+    fileHash: text(),
     previewStorageKey: text(),
     previewStatus: filePipelineStatus().default('pending').notNull(),
     previewError: text(),
@@ -51,6 +69,7 @@ export const files = pgTable(
     versionLabel: text(),
     isLatest: boolean().default(true),
     isDeliverable: boolean().default(false),
+    businessType: text(),
     contractDeliverableId: uuid().references(() => contractDeliverables.id, {
       onDelete: 'set null',
     }),
@@ -60,8 +79,74 @@ export const files = pgTable(
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     isConfidential: boolean().default(false),
+    embeddingStatus: filePipelineStatus().default('pending').notNull(),
+    embeddingError: text(),
+    embeddingModel: text(),
+    embeddingDim: integer(),
+    deletedAt: timestamp({ withTimezone: true }),
   },
-  (t) => [check('chk_version_no_positive', sql`${t.versionNo} > 0`)]
+  (t) => [
+    check('chk_version_no_positive', sql`${t.versionNo} > 0`),
+    index('idx_files_department').on(t.departmentId),
+    index('idx_files_business_type').on(t.businessType),
+    index('idx_files_embedding_status').on(t.embeddingStatus),
+  ]
+)
+
+export const fileDocuments = pgTable(
+  'file_documents',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    fileId: uuid()
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    contentText: text(),
+    contentHash: text(),
+    parserName: text(),
+    parserVersion: text(),
+    language: text(),
+    metadata: jsonb(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique().on(t.fileId),
+    index('idx_file_documents_file').on(t.fileId),
+  ]
+)
+
+export const fileChunks = pgTable(
+  'file_chunks',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    fileId: uuid()
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    documentId: uuid()
+      .notNull()
+      .references(() => fileDocuments.id, { onDelete: 'cascade' }),
+    chunkIndex: integer().notNull(),
+    content: text().notNull(),
+    contentHash: text(),
+    pageNo: integer(),
+    slideNo: integer(),
+    sheetName: text(),
+    rowStart: integer(),
+    rowEnd: integer(),
+    sectionTitle: text(),
+    metadata: jsonb(),
+    searchVector: tsvector(),
+    embedding: vector1536(),
+    embeddingModel: text(),
+    embeddingDim: integer(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique().on(t.fileId, t.chunkIndex),
+    index('idx_file_chunks_file').on(t.fileId),
+    index('idx_file_chunks_document').on(t.documentId),
+    index('idx_file_chunks_search_vector').using('gin', t.searchVector),
+  ]
 )
 
 export const fileComments = pgTable('file_comments', {

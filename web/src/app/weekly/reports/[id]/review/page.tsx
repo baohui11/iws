@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import WeeklyReportReviewClient from '@/modules/weekly/components/reports/weekly-report-review-client'
 import { requireUser } from '@/core/auth'
 import {
@@ -39,13 +40,13 @@ export default async function WeeklyReportReviewPage({ params }: PageProps) {
   const canApprove = detail.report.status === 'pending' && myApproval == null
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-8">
+    <PageShell width="sm">
       <WeeklyReportReviewClient
         detail={detail}
         viewerId={user.id}
         myApproval={myApproval}
         canApprove={canApprove}
       />
-    </div>
+    </PageShell>
   )
 }

@@ -19,10 +19,9 @@ export interface WeeklyDeptByProjectRow {
   project_id: string
   project_no: string | null
   project_name: string | null
+  project_stage: string
   project_status: string | null
-  no_work_exemption: boolean
   report_count: number
-  pending_count: number
   total_work_days: number
 }
 
@@ -34,6 +33,7 @@ export interface WeeklyDeptDetailRow {
   project_id: string
   project_no: string | null
   project_name: string | null
+  project_stage: string
   week_code: string
   status: string
   work_days: number
@@ -44,6 +44,20 @@ export interface WeeklyDeptDetailRow {
   submit_overdue_reason: string
   approval_overdue: string
   approval_overdue_reason: string
+}
+
+export interface WeeklyProjectPersonRangeRow {
+  user_id: string
+  user_name: string
+  employee_no: string | null
+  department_name: string | null
+  project_roles: string
+  project_stage: string
+  week_days: Record<string, number>
+  total_work_days: number
+  submitted_week_count: number
+  missing_week_count: number
+  latest_submitted_at: string | null
 }
 
 /** 文件统计报表行 */

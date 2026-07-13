@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import type { ReactNode } from 'react'
+import PageShell from '@/components/common/page-shell'
 import { getProject } from '@/modules/projects/service'
 import ProjectStatusChip from '@/modules/projects/components/project-status-chip'
 import ProjectDeliverablesEditor from '@/modules/projects/components/project-deliverables-editor'
@@ -15,12 +16,9 @@ export default async function EditProjectPage({ params }: PageProps) {
   if (!project) notFound()
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-8">
+    <PageShell width="lg">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">项目详情</h1>
-        <p className="text-foreground/50 mt-1 text-sm">
-          项目与成员信息来自 OA 同步
-        </p>
       </div>
 
       <div className="rounded-large border-divider bg-content1 shadow-small space-y-8 border p-6">
@@ -92,7 +90,7 @@ export default async function EditProjectPage({ params }: PageProps) {
           </div>
         </section>
       </div>
-    </div>
+    </PageShell>
   )
 }
 

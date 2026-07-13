@@ -56,10 +56,11 @@ export async function loadWeeklyDeptByPersonAction(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   return run(() =>
-    svc.loadWeeklyDeptByPerson(departmentId, weekCode, personNameKeyword, projectKeyword)
+    svc.loadWeeklyDeptByPerson(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
   )
 }
 
@@ -67,10 +68,11 @@ export async function loadWeeklyDeptByProjectAction(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   return run(() =>
-    svc.loadWeeklyDeptByProject(departmentId, weekCode, personNameKeyword, projectKeyword)
+    svc.loadWeeklyDeptByProject(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
   )
 }
 
@@ -78,9 +80,21 @@ export async function loadWeeklyDeptDetailsAction(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   return run(() =>
-    svc.loadWeeklyDeptDetails(departmentId, weekCode, personNameKeyword, projectKeyword)
+    svc.loadWeeklyDeptDetails(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
   )
+}
+
+export async function loadWeeklyProjectPersonRangeAction(input: {
+  departmentId: string
+  projectKeyword: string
+  projectStage?: string | null
+  weekCodeFrom: string
+  weekCodeTo: string
+  personNameKeyword?: string | null
+}) {
+  return run(() => svc.loadWeeklyProjectPersonRange(input))
 }

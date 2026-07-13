@@ -8,7 +8,7 @@ import { Icon, addCollection } from '@iconify/react'
 import solarIcons from '@iconify-json/solar/icons.json'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-import { loginAction } from '../actions'
+import { loginAction, requestPasswordResetAction } from '../actions'
 
 addCollection(solarIcons as Parameters<typeof addCollection>[0])
 
@@ -18,15 +18,34 @@ export function LoginForm() {
   const urlRedirect = searchParams.get('redirect') || '/'
   const [isVisible, setIsVisible] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(false)
+  const [isResetSending, setIsResetSending] = React.useState(false)
+  const [email, setEmail] = React.useState('')
   const [error, setError] = React.useState('')
   const [isSuccess, setIsSuccess] = React.useState(false)
 
   const toggleVisibility = () => setIsVisible(!isVisible)
 
-  const handleForgotPassword = () => {
-    // SMTP/邮件服务待配置（见 docs/迁移进度.md 登记 #2）
+  const handleForgotPassword = async () => {
     setIsSuccess(false)
-    setError('密码重置功能即将开放，请联系管理员重置密码')
+    setError('')
+    if (!email.trim()) {
+      setError('请先输入企业邮箱')
+      return
+    }
+    setIsResetSending(true)
+    try {
+      const result = await requestPasswordResetAction({ email })
+      if (!result.success) {
+        setError(result.message || '发送重置邮件失败')
+        return
+      }
+      setIsSuccess(true)
+      setError('如果该邮箱已开通账号，系统会发送密码重置邮件')
+    } catch {
+      setError('发送重置邮件失败，请稍后重试')
+    } finally {
+      setIsResetSending(false)
+    }
   }
 
   const inputClasses: InputProps['classNames'] = {
@@ -106,6 +125,8 @@ export function LoginForm() {
           name="email"
           placeholder="请输入企业邮箱"
           errorMessage="请输入企业邮箱"
+          value={email}
+          onValueChange={setEmail}
           startContent={
             <Icon
               className="text-foreground/50 text-xl"
@@ -162,6 +183,7 @@ export function LoginForm() {
           size="md"
           className="w-fit px-1 font-medium"
           isDisabled={isLoading}
+          isLoading={isResetSending}
           onPress={handleForgotPassword}
         >
           忘记密码?

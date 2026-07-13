@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import WeeklyExemptionsForm from '@/modules/weekly/components/exemptions/weekly-exemptions-form'
 import { requireUser } from '@/core/auth'
@@ -26,7 +27,7 @@ export default async function WeeklyReportExemptionsPage() {
   ])
 
   return (
-    <div className="container mx-auto max-w-4xl px-4 py-8">
+    <PageShell width="md">
       <SubpageHeader showBack title="无工作周管理" />
 
       <WeeklyExemptionsForm
@@ -34,6 +35,6 @@ export default async function WeeklyReportExemptionsPage() {
         initialRows={rows}
         weekOptions={weekOptions}
       />
-    </div>
+    </PageShell>
   )
 }

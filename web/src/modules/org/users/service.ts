@@ -1,11 +1,14 @@
 import { NotFoundError, ValidationError } from '@/core/errors'
 import { requireAdmin } from '@/modules/org/guard'
+import { sendInviteEmail } from '@/modules/auth/service'
 import { parseSystemRole, type SystemRoleValue } from '@/constants/system-roles'
 import { getAdminDepartmentScopeIds } from '@/modules/org/departments/repo'
 import {
   getUserById,
   getUserList,
+  listUsersForInvite,
   listAllUserDataScopes,
+  markInviteSentAt,
   replaceUserDataScopes,
   searchUsersForDataScopePick,
   updateUserRow,
@@ -28,7 +31,7 @@ function csvCell(value: unknown): string {
 }
 
 function usersToCsv(users: UserWithDepartment[]): string {
-  const header = ['工号', '姓名', '部门', '角色', '标签', '状态', '邮箱', '职位']
+  const header = ['工号', '姓名', '部门', '角色', '标签', '状态', '邀请邮件', '邮箱', '职位']
   const rows = users.map((user) => [
     user.employee_no,
     user.name,
@@ -36,6 +39,7 @@ function usersToCsv(users: UserWithDepartment[]): string {
     user.role,
     user.tags,
     user.is_active ? '已生效' : '未生效',
+    user.invite_sent_at ? '已发送' : '未发送',
     user.email,
     user.position,
   ])
@@ -130,6 +134,70 @@ export async function updateUserAdminSettings(input: {
     is_active: input.is_active,
   })
   return { id: input.id, role, tags, is_active: input.is_active }
+}
+
+export async function activateUsers(input: { ids: string[] }) {
+  await requireAdmin()
+  const ids = [...new Set((input.ids ?? []).map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) throw new ValidationError('请选择要生效的用户')
+
+  let updatedCount = 0
+  for (const id of ids) {
+    const existing = await getUserForAdmin(id)
+    if (!existing) continue
+    if (existing.is_active) continue
+    await updateUserRow(id, { is_active: true })
+    updatedCount += 1
+  }
+
+  return { updated_count: updatedCount, skipped_count: ids.length - updatedCount }
+}
+
+export async function sendInvitesToUsers(input: { ids: string[] }) {
+  const actor = await requireAdmin()
+  const ids = [...new Set((input.ids ?? []).map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) throw new ValidationError('请选择要发送邀请的用户')
+
+  const allowedDepartmentIds = await getAdminDepartmentScopeIds(actor, {
+    includeInactive: true,
+  })
+  const candidates = await listUsersForInvite({
+    ids,
+    allowed_department_ids: allowedDepartmentIds,
+  })
+
+  let sentCount = 0
+  let skippedCount = ids.length - candidates.length
+  const failed: Array<{ id: string; name: string | null; reason: string }> = []
+
+  for (const user of candidates) {
+    if (!user.email?.trim()) {
+      skippedCount += 1
+      continue
+    }
+    try {
+      const sent = await sendInviteEmail({ userId: user.id, email: user.email })
+      if (sent) {
+        await markInviteSentAt(user.id, new Date())
+        sentCount += 1
+      } else {
+        skippedCount += 1
+      }
+    } catch (error) {
+      failed.push({
+        id: user.id,
+        name: user.name ?? user.employee_no ?? user.email,
+        reason: error instanceof Error ? error.message : '发送失败',
+      })
+    }
+  }
+
+  return {
+    sent_count: sentCount,
+    skipped_count: skippedCount,
+    failed_count: failed.length,
+    failed,
+  }
 }
 
 export async function listDataScopes() {

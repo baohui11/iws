@@ -17,6 +17,8 @@ const MAX_ZOOM = 2.5
 const ZOOM_STEP = 0.1
 const MAX_RENDER_DPR = 2
 const PAGE_GAP = 40
+const FLOATING_TOOLBAR_WIDTH = 420
+const FLOATING_TOOLBAR_HEIGHT = 48
 
 function isPdfRenderCancelled(e: unknown): boolean {
   if (e == null || typeof e !== 'object') return false
@@ -162,12 +164,22 @@ function PdfPageCanvas({
 
 export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
   const viewportRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+  } | null>(null)
   const containerWidth = useElementWidth(viewportRef)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [numPages, setNumPages] = useState(0)
   const [pageInput, setPageInput] = useState('1')
   const [zoom, setZoom] = useState(DEFAULT_ZOOM)
-  const [toolbarOpen, setToolbarOpen] = useState(false)
+  const [toolbarOpen, setToolbarOpen] = useState(true)
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(
+    null
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -216,6 +228,62 @@ export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
 
   const showToolbar = !!(pdf && numPages > 0 && !loading && !error)
 
+  useEffect(() => {
+    if (!showToolbar || toolbarPos) return
+    setToolbarPos({
+      x: Math.max(16, Math.round(window.innerWidth / 2 - FLOATING_TOOLBAR_WIDTH / 2)),
+      y: 92,
+    })
+  }, [showToolbar, toolbarPos])
+
+  const moveToolbar = useCallback((x: number, y: number) => {
+    const maxX = Math.max(8, window.innerWidth - FLOATING_TOOLBAR_WIDTH - 8)
+    const maxY = Math.max(8, window.innerHeight - FLOATING_TOOLBAR_HEIGHT - 8)
+    setToolbarPos({
+      x: Math.min(maxX, Math.max(8, x)),
+      y: Math.min(maxY, Math.max(8, y)),
+    })
+  }, [])
+
+  const startToolbarDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const origin = toolbarPos ?? {
+        x: Math.max(16, window.innerWidth / 2 - FLOATING_TOOLBAR_WIDTH / 2),
+        y: 92,
+      }
+      dragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: origin.x,
+        originY: origin.y,
+      }
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    [toolbarPos]
+  )
+
+  const onToolbarDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      moveToolbar(
+        drag.originX + event.clientX - drag.startX,
+        drag.originY + event.clientY - drag.startY
+      )
+    },
+    [moveToolbar]
+  )
+
+  const endToolbarDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (dragRef.current?.pointerId === event.pointerId) {
+        dragRef.current = null
+      }
+    },
+    []
+  )
+
   return (
     <div className="relative flex w-full flex-col">
       <div ref={viewportRef} className="min-w-0 bg-default-100">
@@ -243,13 +311,34 @@ export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
       </div>
 
       {showToolbar ? (
-        <div className="pointer-events-none absolute inset-x-0 top-2 z-50 flex justify-center px-2">
+        <div
+          className="pointer-events-none fixed z-[70]"
+          style={{
+            left: toolbarPos ? `${toolbarPos.x}px` : '50%',
+            top: toolbarPos ? `${toolbarPos.y}px` : '92px',
+            transform: toolbarPos ? undefined : 'translateX(-50%)',
+          }}
+        >
           {toolbarOpen ? (
             <div
-              className="pointer-events-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full border border-default-200/70 bg-background/85 px-2 py-1 shadow-sm backdrop-blur-md"
+              className="pointer-events-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full border border-default-200/70 bg-background/90 px-2 py-1 shadow-lg backdrop-blur-md"
               role="toolbar"
               aria-label="PDF 工具栏"
             >
+              <Tooltip content="拖动工具栏">
+                <button
+                  type="button"
+                  className="inline-flex size-8 cursor-grab touch-none items-center justify-center rounded-full text-default-400 hover:bg-default-100 hover:text-default-700 active:cursor-grabbing"
+                  aria-label="拖动工具栏"
+                  onPointerDown={startToolbarDrag}
+                  onPointerMove={onToolbarDrag}
+                  onPointerUp={endToolbarDrag}
+                  onPointerCancel={endToolbarDrag}
+                >
+                  <Icon icon="lucide:grip" className="size-4" />
+                </button>
+              </Tooltip>
+
               <div className="flex items-center gap-1.5">
                 <Input
                   size="sm"
@@ -336,7 +425,7 @@ export function PreviewPdf({ signedUrl }: { signedUrl: string }) {
                 isIconOnly
                 size="sm"
                 variant="flat"
-                className="pointer-events-auto bg-background/85 shadow-sm backdrop-blur-md"
+                className="pointer-events-auto bg-background/90 shadow-lg backdrop-blur-md"
                 aria-label="展开 PDF 工具栏"
                 onPress={() => setToolbarOpen(true)}
               >

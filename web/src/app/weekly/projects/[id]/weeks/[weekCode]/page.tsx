@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import ProjectWeekDetailView from '@/modules/weekly/components/project-weekly/project-week-detail-view'
 import { requireUser } from '@/core/auth'
 import { getProjectWeekWorkItemsPage } from '@/modules/weekly/project-weekly/repo'
@@ -33,8 +34,8 @@ export default async function ProjectWeekDetailPage({ params }: PageProps) {
   }
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-8">
+    <PageShell width="sm">
       <ProjectWeekDetailView projectId={id} data={data} />
-    </div>
+    </PageShell>
   )
 }

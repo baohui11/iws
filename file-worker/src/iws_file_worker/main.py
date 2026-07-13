@@ -6,10 +6,12 @@ import time
 from types import FrameType
 
 from .config import load_settings
+from .embedding import EmbeddingClient, start_embedding_http_server
+from .parse import ParseProcessor
 from .processor import TaskProcessor
 from .repository import Repository
 from .storage import ObjectStorage
-from .preview import PreviewProcessor
+from .preview import PreviewProcessor, PreviewResult
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s - %(message)s"
 
@@ -22,7 +24,7 @@ class StopSignal:
         self.stop = True
 
 
-def run_once(repo: Repository, processor: TaskProcessor) -> bool:
+def run_once(repo: Repository, processor: TaskProcessor, embedding_client: EmbeddingClient) -> bool:
     processed_any = False
     with repo.connect() as conn:
         messages = repo.read_messages(conn)
@@ -46,6 +48,78 @@ def run_once(repo: Repository, processor: TaskProcessor) -> bool:
             )
             try:
                 result = processor.process(claimed)
+                if claimed.task.stage == "parse" and result.status == "ready":
+                    repo.replace_file_document(
+                        conn,
+                        file_id=claimed.file.id,
+                        content_text=result.content_text,
+                        parser_name=result.parser_name,
+                        parser_version=result.parser_version,
+                        language=result.language,
+                        metadata=result.metadata,
+                        chunks=[
+                            {
+                                "chunk_index": c.chunk_index,
+                                "content": c.content,
+                                "page_no": c.page_no,
+                                "slide_no": c.slide_no,
+                                "sheet_name": c.sheet_name,
+                                "row_start": c.row_start,
+                                "row_end": c.row_end,
+                                "section_title": c.section_title,
+                                "metadata": c.metadata,
+                            }
+                            for c in result.chunks
+                        ],
+                    )
+                    repo.enqueue_stage(conn, file_id=claimed.file.id, stage="index")
+                if claimed.task.stage == "index" and result.status == "ready":
+                    count = repo.update_file_chunk_search_vectors(
+                        conn,
+                        file_id=claimed.file.id,
+                    )
+                    repo.enqueue_stage(conn, file_id=claimed.file.id, stage="embed")
+                    result = PreviewResult(
+                        status="ready",
+                        output={"version": 1, "indexed_chunks": count},
+                    )
+                if claimed.task.stage == "embed":
+                    chunk_rows = repo.list_file_chunks_for_embedding(
+                        conn,
+                        file_id=claimed.file.id,
+                    )
+                    if not chunk_rows:
+                        result = PreviewResult(
+                            status="skipped",
+                            output={"version": 1, "reason": "no_chunks"},
+                        )
+                    elif not embedding_client.enabled:
+                        result = PreviewResult(
+                            status="skipped",
+                            output={"version": 1, "reason": "embedding_not_configured"},
+                        )
+                    else:
+                        embedding = embedding_client.embed(
+                            [str(row["content"]) for row in chunk_rows],
+                            text_type="document",
+                        )
+                        count = repo.update_file_chunk_embeddings(
+                            conn,
+                            file_id=claimed.file.id,
+                            rows=chunk_rows,
+                            embeddings=embedding.embeddings,
+                            model=embedding.model,
+                            dim=embedding.dim,
+                        )
+                        result = PreviewResult(
+                            status="ready",
+                            output={
+                                "version": 1,
+                                "embedded_chunks": count,
+                                "model": embedding.model,
+                                "dim": embedding.dim,
+                            },
+                        )
                 repo.mark_stage(
                     conn,
                     file_id=claimed.file.id,
@@ -99,17 +173,25 @@ def main() -> None:
     settings = load_settings()
     repo = Repository(settings)
     storage = ObjectStorage(settings)
-    processor = TaskProcessor(PreviewProcessor(settings, storage))
+    embedding_client = EmbeddingClient(settings)
+    embedding_server = start_embedding_http_server(settings, embedding_client)
+    processor = TaskProcessor(
+        preview_processor=PreviewProcessor(settings, storage),
+        parse_processor=ParseProcessor(settings, storage),
+    )
 
     stop_signal = StopSignal()
     signal.signal(signal.SIGTERM, stop_signal.handle)
     signal.signal(signal.SIGINT, stop_signal.handle)
 
     logging.info("file worker started worker_id=%s", settings.worker_id)
-    while not stop_signal.stop:
-        processed = run_once(repo, processor)
-        if not processed:
-            time.sleep(settings.poll_interval_seconds)
+    try:
+        while not stop_signal.stop:
+            processed = run_once(repo, processor, embedding_client)
+            if not processed:
+                time.sleep(settings.poll_interval_seconds)
+    finally:
+        embedding_server.shutdown()
     logging.info("file worker stopped")
 
 

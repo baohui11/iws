@@ -42,7 +42,8 @@ export default function WeeklyStatsDetailsClient({
       s.departmentId,
       s.weekCode,
       s.personKeyword || null,
-      s.projectKeyword || null
+      s.projectKeyword || null,
+      s.projectStage || null
     )
     setLoading(false)
     if (!result.success) {
@@ -62,6 +63,7 @@ export default function WeeklyStatsDetailsClient({
         weekCode: initialWeekCode,
         personKeyword: '',
         projectKeyword: '',
+        projectStage: '',
       })
     }
   }, [initialDepartmentId, initialWeekCode, runQuery])
@@ -70,6 +72,7 @@ export default function WeeklyStatsDetailsClient({
     const headers = [
       '填写人',
       '项目名称',
+      '项目阶段',
       '周次',
       '工作天数',
       '工作事项数',
@@ -82,6 +85,7 @@ export default function WeeklyStatsDetailsClient({
     const body = rows.map((r) => [
       r.user_name,
       r.project_name ?? '—',
+      r.project_stage,
       r.week_code,
       String(r.work_days),
       String(r.item_count),
@@ -138,6 +142,7 @@ export default function WeeklyStatsDetailsClient({
             <TableHeader>
               <TableColumn>填写人</TableColumn>
               <TableColumn>项目名称</TableColumn>
+              <TableColumn>阶段</TableColumn>
               <TableColumn>周次</TableColumn>
               <TableColumn>天数</TableColumn>
               <TableColumn>事项数</TableColumn>
@@ -154,6 +159,7 @@ export default function WeeklyStatsDetailsClient({
                   <TableCell className="min-w-[240px] max-w-[min(480px,50vw)]">
                     <span className="line-clamp-2">{r.project_name ?? '—'}</span>
                   </TableCell>
+                  <TableCell className="whitespace-nowrap">{r.project_stage}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.week_code}</TableCell>
                   <TableCell className="tabular-nums">{r.work_days}</TableCell>
                   <TableCell className="tabular-nums">{r.item_count}</TableCell>

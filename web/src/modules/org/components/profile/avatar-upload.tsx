@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import React from 'react'
 import { uploadAvatarAction } from '@/modules/org/profile/actions'
 import { resolveAvatarUrl } from '@/core/storage/buckets'
+import { AVATAR_ALLOWED_MIME, MAX_AVATAR_BYTES } from '@/core/storage/constants'
 
 interface AvatarUploadProps {
   name: string
@@ -30,17 +31,40 @@ export default function AvatarUpload({ name, initialSrc }: AvatarUploadProps) {
     if (!file) return
 
     setError('')
-    setLoading(true)
-    const fd = new FormData()
-    fd.append('file', file)
-    const result = await uploadAvatarAction(fd)
-    setLoading(false)
+    if (!AVATAR_ALLOWED_MIME.has(file.type)) {
+      setError('仅支持 JPG、PNG、WebP、GIF 图片')
+      return
+    }
+    if (file.size <= 0) {
+      setError('文件为空')
+      return
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setError('文件大小不能超过 2MB')
+      return
+    }
 
-    if (result.success && result.data?.avatarUrl) {
-      setSrc(result.data.avatarUrl)
-      router.refresh()
-    } else {
-      setError(result.success ? '上传失败' : result.message)
+    setLoading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const result = await uploadAvatarAction(fd)
+
+      if (result.success && result.data?.avatarUrl) {
+        setSrc(result.data.avatarUrl)
+        window.dispatchEvent(
+          new CustomEvent('iws:user-updated', {
+            detail: { avatarUrl: result.data.avatarUrl },
+          })
+        )
+        router.refresh()
+      } else {
+        setError(result.success ? '上传失败' : result.message)
+      }
+    } catch {
+      setError('上传失败，请稍后重试')
+    } finally {
+      setLoading(false)
     }
   }
 

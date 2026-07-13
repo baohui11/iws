@@ -113,6 +113,41 @@
       "when": 1783296000000,
       "tag": "0015_file_project_stage_sales_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783641600000,
+      "tag": "0016_file_search_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783645200000,
+      "tag": "0017_file_fulltext_jieba",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783728000000,
+      "tag": "0018_auth_email_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783814400000,
+      "tag": "0019_user_invite_sent_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783900800000,
+      "tag": "0020_oa_sync_web_scheduler",
+      "breakpoints": true
     }
   ]
 }

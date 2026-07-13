@@ -1,6 +1,7 @@
 'use client'
 
 import { Card, CardBody, CardHeader } from '@heroui/react'
+import PageShell from '@/components/common/page-shell'
 import AvatarUpload from './avatar-upload'
 import ProfileInfoFields from './info-fields'
 import ProfilePasswordSection from './password-section'
@@ -12,7 +13,7 @@ interface ProfileSettingsProps {
 
 export default function ProfileSettings({ profile }: ProfileSettingsProps) {
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-8 md:py-12">
+    <PageShell width="md" className="flex flex-col gap-8">
       <header className="flex flex-col gap-1">
         <h1 className="text-3xl font-semibold tracking-tight">个人设置</h1>
         <p className="text-default-500 text-small md:text-medium">
@@ -47,7 +48,7 @@ export default function ProfileSettings({ profile }: ProfileSettingsProps) {
           <CardHeader className="flex flex-col items-start gap-1 px-6 pt-6 pb-0">
             <h2 className="text-large font-medium">账号安全</h2>
             <p className="text-default-500 text-small">
-              修改用于登录的密码；展开后输入新密码并确认。
+              修改用于登录的密码；需要先验证当前密码。
             </p>
           </CardHeader>
           <CardBody className="px-6 pt-4 pb-6">
@@ -55,6 +56,6 @@ export default function ProfileSettings({ profile }: ProfileSettingsProps) {
           </CardBody>
         </Card>
       </div>
-    </div>
+    </PageShell>
   )
 }

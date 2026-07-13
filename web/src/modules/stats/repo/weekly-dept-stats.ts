@@ -1,10 +1,10 @@
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or } from 'drizzle-orm'
 import { getDb } from '@/core/db/client'
 import {
+  departments,
   files,
   projectMembers,
   projects,
-  projectWeekExemptions,
   users,
   weeklyReportApprovals,
   weeklyReportItems,
@@ -18,28 +18,13 @@ import type {
   WeeklyDeptByPersonRow,
   WeeklyDeptByProjectRow,
   WeeklyDeptDetailRow,
+  WeeklyProjectPersonRangeRow,
 } from '../types'
 
-type WeeklyReportStatus = 'draft' | 'pending' | 'approved' | 'rejected'
+const EFFECTIVE_REPORT_STATUS = 'approved'
 
 function escapeForILike(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
-}
-
-function weekCoveredByExemptions(
-  weekCode: string,
-  rows: { startWeekCode: string; endWeekCode: string | null }[]
-): boolean {
-  const w = weekCode.trim()
-  for (const row of rows) {
-    const start = row.startWeekCode?.trim() ?? ''
-    const end = (row.endWeekCode?.trim() || start) as string
-    if (!start) continue
-    if (compareWeekCode(w, start) >= 0 && compareWeekCode(w, end) <= 0) {
-      return true
-    }
-  }
-  return false
 }
 
 function hoursToWorkDays(hours: number): number {
@@ -52,6 +37,7 @@ export interface WeeklyDeptStatsParams {
   weekCode: string
   personNameKeyword?: string | null
   projectKeyword?: string | null
+  projectStage?: string | null
 }
 
 async function getProjectIdsInDepartmentScope(departmentId: string): Promise<string[]> {
@@ -107,6 +93,7 @@ export async function getWeeklyDeptByPerson(
 
   const dateRange = await getWeekDateRange(weekCode)
   if (!dateRange) return []
+  const stage = params.projectStage?.trim() || null
 
   const userConditions = [
     inArray(users.departmentId, deptIds),
@@ -130,7 +117,8 @@ export async function getWeeklyDeptByPerson(
       and(
         inArray(projectMembers.projectId, projectIds),
         eq(projectMembers.isActive, true),
-        isNull(projectMembers.deletedAt)
+        isNull(projectMembers.deletedAt),
+        ...(stage ? [eq(projectMembers.projectStage, stage as '实施阶段' | '销售阶段')] : [])
       )
     )
 
@@ -154,7 +142,8 @@ export async function getWeeklyDeptByPerson(
       and(
         eq(weeklyReports.weekCode, weekCode),
         inArray(weeklyReports.projectId, projectIds),
-        ne(weeklyReports.status, 'draft')
+        eq(weeklyReports.status, EFFECTIVE_REPORT_STATUS),
+        ...(stage ? [eq(weeklyReports.projectStage, stage as '实施阶段' | '销售阶段')] : [])
       )
     )
 
@@ -252,6 +241,7 @@ export async function getWeeklyDeptByProject(
       projectNo: projects.projectNo,
       projectName: projects.projectName,
       projectStatus: projects.projectStatus,
+      projectStage: projects.projectStage,
     })
     .from(projects)
     .where(and(...projectConditions))
@@ -260,34 +250,13 @@ export async function getWeeklyDeptByProject(
   if (!plist.length) return []
 
   const projectIds = plist.map((p) => p.id)
-
-  const exRows = await db
-    .select({
-      projectId: projectWeekExemptions.projectId,
-      startWeekCode: projectWeekExemptions.startWeekCode,
-      endWeekCode: projectWeekExemptions.endWeekCode,
-    })
-    .from(projectWeekExemptions)
-    .where(inArray(projectWeekExemptions.projectId, projectIds))
-
-  const exByProject = new Map<
-    string,
-    { startWeekCode: string; endWeekCode: string | null }[]
-  >()
-  for (const row of exRows) {
-    const pid = row.projectId
-    const list = exByProject.get(pid) ?? []
-    list.push({
-      startWeekCode: row.startWeekCode,
-      endWeekCode: row.endWeekCode,
-    })
-    exByProject.set(pid, list)
-  }
+  const stage = params.projectStage?.trim() || null
 
   const reportRows = await db
     .select({
       id: weeklyReports.id,
       projectId: weeklyReports.projectId,
+      projectStage: weeklyReports.projectStage,
       status: weeklyReports.status,
     })
     .from(weeklyReports)
@@ -295,7 +264,8 @@ export async function getWeeklyDeptByProject(
       and(
         eq(weeklyReports.weekCode, weekCode),
         inArray(weeklyReports.projectId, projectIds),
-        ne(weeklyReports.status, 'draft')
+        eq(weeklyReports.status, EFFECTIVE_REPORT_STATUS),
+        ...(stage ? [eq(weeklyReports.projectStage, stage as '实施阶段' | '销售阶段')] : [])
       )
     )
 
@@ -319,32 +289,40 @@ export async function getWeeklyDeptByProject(
     }
   }
 
-  const byProject = new Map<string, typeof reportRows>()
+  const byProjectStage = new Map<string, typeof reportRows>()
   for (const r of reportRows) {
-    const list = byProject.get(r.projectId) ?? []
+    const key = `${r.projectId}:${r.projectStage}`
+    const list = byProjectStage.get(key) ?? []
     list.push(r)
-    byProject.set(r.projectId, list)
+    byProjectStage.set(key, list)
   }
 
-  return plist.map((p) => {
-    const list = byProject.get(p.id) ?? []
+  const rows: WeeklyDeptByProjectRow[] = []
+  for (const p of plist) {
+    const stages =
+      stage != null
+        ? [stage]
+        : p.projectStage === '销售阶段'
+          ? ['销售阶段']
+          : ['实施阶段', '销售阶段']
+    for (const projectStage of stages) {
+      const list = byProjectStage.get(`${p.id}:${projectStage}`) ?? []
     let totalH = 0
-    let pending = 0
     for (const r of list) {
       totalH += hoursByReport.get(r.id) ?? 0
-      if (r.status === 'pending') pending += 1
     }
-    return {
+      rows.push({
       project_id: p.id,
       project_no: p.projectNo,
       project_name: p.projectName,
+        project_stage: projectStage,
       project_status: p.projectStatus,
-      no_work_exemption: weekCoveredByExemptions(weekCode, exByProject.get(p.id) ?? []),
       report_count: list.length,
-      pending_count: pending,
       total_work_days: hoursToWorkDays(totalH),
+      })
     }
-  })
+  }
+  return rows
 }
 
 export async function getWeeklyDeptDetails(
@@ -374,8 +352,14 @@ export async function getWeeklyDeptDetails(
   const reportConditions = [
     eq(weeklyReports.weekCode, weekCode),
     inArray(weeklyReports.projectId, projectIds),
-    ne(weeklyReports.status, 'draft'),
+    eq(weeklyReports.status, EFFECTIVE_REPORT_STATUS),
   ]
+  const stage = params.projectStage?.trim()
+  if (stage) {
+    reportConditions.push(
+      eq(weeklyReports.projectStage, stage as '实施阶段' | '销售阶段')
+    )
+  }
 
   const pn = params.personNameKeyword?.trim()
   if (pn) {
@@ -393,6 +377,7 @@ export async function getWeeklyDeptDetails(
       id: weeklyReports.id,
       userId: weeklyReports.userId,
       projectId: weeklyReports.projectId,
+      projectStage: weeklyReports.projectStage,
       weekCode: weeklyReports.weekCode,
       status: weeklyReports.status,
       createdAt: weeklyReports.createdAt,
@@ -462,14 +447,14 @@ export async function getWeeklyDeptDetails(
   }
 
   return reportRows.map((r) => {
-    const st = r.status as WeeklyReportStatus
     const label =
-      WEEKLY_REPORT_STATUS_LABEL[st as keyof typeof WEEKLY_REPORT_STATUS_LABEL] ?? st
+      WEEKLY_REPORT_STATUS_LABEL[
+        r.status as keyof typeof WEEKLY_REPORT_STATUS_LABEL
+      ] ?? r.status
     const th = hoursByReport.get(r.id) ?? 0
-    const submitted =
-      st !== 'draft' && r.createdAt
-        ? String(r.createdAt).slice(0, 19).replace('T', ' ')
-        : null
+    const submitted = r.createdAt
+      ? String(r.createdAt).slice(0, 19).replace('T', ' ')
+      : null
     const appr = approvedAtByReport.get(r.id)
     const approved_at = appr ? appr.slice(0, 19).replace('T', ' ') : null
 
@@ -480,6 +465,7 @@ export async function getWeeklyDeptDetails(
       project_id: r.projectId,
       project_no: projNo.get(r.projectId) ?? null,
       project_name: projName.get(r.projectId) ?? null,
+      project_stage: r.projectStage,
       week_code: r.weekCode,
       status: label,
       work_days: hoursToWorkDays(th),
@@ -492,4 +478,210 @@ export async function getWeeklyDeptDetails(
       approval_overdue_reason: '—',
     }
   })
+}
+
+export interface WeeklyProjectPersonRangeParams {
+  departmentId: string
+  projectKeyword: string
+  projectStage?: string | null
+  weekCodeFrom: string
+  weekCodeTo: string
+  personNameKeyword?: string | null
+}
+
+async function getWeekCodesInRange(from: string, to: string): Promise<string[]> {
+  const db = getDb()
+  const start = from.trim()
+  const end = to.trim()
+  if (!start || !end) return []
+  const rows = await db
+    .select({ weekCode: weeks.weekCode })
+    .from(weeks)
+    .where(and(gte(weeks.weekCode, start), lte(weeks.weekCode, end)))
+    .orderBy(asc(weeks.weekCode))
+  return rows
+    .map((row) => row.weekCode)
+    .filter((week) => compareWeekCode(week, start) >= 0 && compareWeekCode(week, end) <= 0)
+}
+
+export async function getWeeklyProjectPersonRange(
+  params: WeeklyProjectPersonRangeParams
+): Promise<WeeklyProjectPersonRangeRow[]> {
+  const db = getDb()
+  const deptIds = await getDepartmentIdsForListFilter(params.departmentId)
+  const keyword = params.projectKeyword.trim()
+  if (!keyword) return []
+  const k = `%${escapeForILike(keyword)}%`
+  const projectRows = await db
+    .select({
+      id: projects.id,
+      projectStage: projects.projectStage,
+    })
+    .from(projects)
+    .where(
+      and(
+        inArray(projects.departmentId, deptIds),
+        isNull(projects.deletedAt),
+        or(ilike(projects.projectName, k), ilike(projects.projectNo, k))
+      )
+    )
+    .orderBy(asc(projects.projectNo))
+    .limit(20)
+
+  const projectIds = projectRows.map((p) => p.id)
+  if (!projectIds.length) return []
+
+  const weekCodes = await getWeekCodesInRange(
+    params.weekCodeFrom,
+    params.weekCodeTo
+  )
+  if (!weekCodes.length) return []
+
+  const stage = params.projectStage?.trim() || null
+  const reportConditions = [
+    inArray(weeklyReports.projectId, projectIds),
+    inArray(weeklyReports.weekCode, weekCodes),
+    eq(weeklyReports.status, EFFECTIVE_REPORT_STATUS),
+  ]
+  if (stage) {
+    reportConditions.push(
+      eq(weeklyReports.projectStage, stage as '实施阶段' | '销售阶段')
+    )
+  }
+
+  const personKeyword = params.personNameKeyword?.trim()
+  let allowedUserIds: string[] | null = null
+  if (personKeyword) {
+    const matchedUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(ilike(users.name, `%${escapeForILike(personKeyword)}%`))
+    allowedUserIds = matchedUsers.map((u) => u.id)
+    if (!allowedUserIds.length) return []
+    reportConditions.push(inArray(weeklyReports.userId, allowedUserIds))
+  }
+
+  const reportRows = await db
+    .select({
+      id: weeklyReports.id,
+      userId: weeklyReports.userId,
+      projectId: weeklyReports.projectId,
+      projectStage: weeklyReports.projectStage,
+      weekCode: weeklyReports.weekCode,
+      submitTime: weeklyReports.submitTime,
+      createdAt: weeklyReports.createdAt,
+    })
+    .from(weeklyReports)
+    .where(and(...reportConditions))
+
+  if (!reportRows.length) return []
+
+  const reportIds = reportRows.map((r) => r.id)
+  const items = await db
+    .select({
+      reportId: weeklyReportItems.reportId,
+      workDays: weeklyReportItems.workDays,
+      itemType: weeklyReportItems.itemType,
+    })
+    .from(weeklyReportItems)
+    .where(inArray(weeklyReportItems.reportId, reportIds))
+
+  const daysByReport = new Map<string, number>()
+  for (const item of items) {
+    if (item.itemType !== 'work') continue
+    daysByReport.set(
+      item.reportId,
+      (daysByReport.get(item.reportId) ?? 0) + Number(item.workDays ?? 0)
+    )
+  }
+
+  const userIds = [...new Set(reportRows.map((r) => r.userId))]
+  const [userRows, memberRows] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        name: users.name,
+        employeeNo: users.employeeNo,
+        departmentName: departments.name,
+      })
+      .from(users)
+      .leftJoin(departments, eq(users.departmentId, departments.id))
+      .where(inArray(users.id, userIds)),
+    db
+      .select({
+        userId: projectMembers.userId,
+        projectRole: projectMembers.projectRole,
+        projectStage: projectMembers.projectStage,
+      })
+      .from(projectMembers)
+      .where(
+        and(
+          inArray(projectMembers.projectId, projectIds),
+          inArray(projectMembers.userId, userIds),
+          eq(projectMembers.isActive, true),
+          isNull(projectMembers.deletedAt)
+        )
+      ),
+  ])
+
+  const userInfo = new Map(
+    userRows.map((u) => [
+      u.id,
+      {
+        name: u.name?.trim() || '—',
+        employeeNo: u.employeeNo ?? null,
+        departmentName: u.departmentName ?? null,
+      },
+    ])
+  )
+  const rolesByUserStage = new Map<string, Set<string>>()
+  for (const member of memberRows) {
+    if (!member.userId || !member.projectStage) continue
+    const key = `${member.userId}:${member.projectStage}`
+    const set = rolesByUserStage.get(key) ?? new Set<string>()
+    if (member.projectRole?.trim()) set.add(member.projectRole.trim())
+    rolesByUserStage.set(key, set)
+  }
+
+  const byUserStage = new Map<string, WeeklyProjectPersonRangeRow>()
+  for (const report of reportRows) {
+    const key = `${report.userId}:${report.projectStage}`
+    const info = userInfo.get(report.userId)
+    const row =
+      byUserStage.get(key) ??
+      ({
+        user_id: report.userId,
+        user_name: info?.name ?? '—',
+        employee_no: info?.employeeNo ?? null,
+        department_name: info?.departmentName ?? null,
+        project_roles: [
+          ...(rolesByUserStage.get(`${report.userId}:${report.projectStage}`) ??
+            new Set<string>()),
+        ].join('、'),
+        project_stage: report.projectStage,
+        week_days: Object.fromEntries(weekCodes.map((week) => [week, 0])),
+        total_work_days: 0,
+        submitted_week_count: 0,
+        missing_week_count: weekCodes.length,
+        latest_submitted_at: null,
+      } satisfies WeeklyProjectPersonRangeRow)
+    const days = daysByReport.get(report.id) ?? 0
+    row.week_days[report.weekCode] = (row.week_days[report.weekCode] ?? 0) + days
+    row.total_work_days = Math.round((row.total_work_days + days) * 10) / 10
+    const submittedAt = report.submitTime ?? report.createdAt
+    const submittedStr = submittedAt ? String(submittedAt).slice(0, 19).replace('T', ' ') : null
+    if (submittedStr && (!row.latest_submitted_at || submittedStr > row.latest_submitted_at)) {
+      row.latest_submitted_at = submittedStr
+    }
+    byUserStage.set(key, row)
+  }
+
+  for (const row of byUserStage.values()) {
+    row.submitted_week_count = Object.values(row.week_days).filter((d) => d > 0).length
+    row.missing_week_count = Math.max(0, weekCodes.length - row.submitted_week_count)
+  }
+
+  return [...byUserStage.values()].sort((a, b) =>
+    a.user_name.localeCompare(b.user_name, 'zh-CN')
+  )
 }

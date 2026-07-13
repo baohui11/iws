@@ -2,6 +2,7 @@
 
 import {
   Button,
+  Chip,
   Divider,
   ScrollShadow,
   Skeleton,
@@ -12,6 +13,7 @@ import {
 import { Icon } from '@iconify/react'
 import clsx from 'clsx'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SubpageBackButton } from '@/components/common/subpage-header'
 import {
@@ -149,6 +151,8 @@ function formatWatermarkTime(date: Date): string {
 const PREVIEW_PAGE_HEIGHT_CLASS =
   'h-[calc(100svh-60px)] max-h-[calc(100svh-60px)]'
 
+type PreviewViewMode = 'preview' | 'info'
+
 function LoadingPreview() {
   return (
     <div
@@ -183,13 +187,268 @@ function EmptyPreview() {
   )
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+    .format(date)
+    .replace(/\//g, '-')
+}
+
+function sourceLabel(data: FilePreviewLoadResult): string {
+  if (data.projectStage === '销售阶段') {
+    return data.salesFileTag ? `销售资料-${data.salesFileTag}` : '销售资料'
+  }
+  if (data.isDeliverable) return '成果文件'
+  if (data.fileSource === 'client') return '参考资料-客户资料'
+  if (data.fileSource === 'internal') return '参考资料-内部资料'
+  if (data.fileSource === 'public') return '参考资料-公开资料'
+  if (data.fileSource === 'original') return '参考资料-项目成果文件'
+  return data.businessType ? `参考资料-${data.businessType}` : '参考资料'
+}
+
+function chunkLocation(chunk: FilePreviewLoadResult['chunks'][number]) {
+  if (chunk.slideNo) return `第 ${chunk.slideNo} 页`
+  if (chunk.pageNo) return `第 ${chunk.pageNo} 页`
+  if (chunk.sheetName) {
+    const rows =
+      chunk.rowStart && chunk.rowEnd
+        ? ` · ${chunk.rowStart}-${chunk.rowEnd} 行`
+        : ''
+    return `${chunk.sheetName}${rows}`
+  }
+  return `切块 ${chunk.chunkIndex + 1}`
+}
+
+function InfoGrid({
+  items,
+}: {
+  items: Array<[string, string | number | null | undefined]>
+}) {
+  return (
+    <dl className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+      {items.map(([label, value]) => (
+        <div
+          key={label}
+          className="min-w-0 rounded-md border border-default-200 bg-default-50 px-3 py-2 dark:bg-default-100/20"
+        >
+          <dt className="text-xs text-default-500">{label}</dt>
+          <dd className="mt-1 min-w-0 truncate font-medium text-foreground">
+            {value || '—'}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function FileInfoView({
+  data,
+  onSocialUpdate,
+  onTopLevelCommentAdded,
+}: {
+  data: FilePreviewLoadResult
+  onSocialUpdate: (
+    patch: Partial<
+      Pick<FilePreviewLoadResult, 'interactions' | 'recommendStats'>
+    >
+  ) => void
+  onTopLevelCommentAdded: (
+    comment: FilePreviewLoadResult['comments'][number]
+  ) => void
+}) {
+  const [chunksOpen, setChunksOpen] = useState(false)
+  const baseItems: Array<[string, string | number | null | undefined]> = [
+    ['文件类型', previewKindLabel(data)],
+    ['文件大小', formatFileSize(data.fileSize)],
+    ['文件分类', sourceLabel(data)],
+    ['项目', data.projectName || data.projectNo],
+    ['所属部门', data.departmentName],
+    ['项目阶段', data.projectStage],
+    ['上传人', data.uploaderName],
+    ['上传时间', formatDateTime(data.createdAt)],
+    ['MIME', data.mimeType],
+  ]
+  const versionItems: Array<[string, string | number | null | undefined]> = [
+    ['当前版本', `V${data.versionNo}${data.versionLabel ? ` · ${data.versionLabel}` : ''}`],
+    ['是否最新', data.isLatest ? '是' : '否'],
+    ['成果清单', data.contractDeliverableName],
+    ['原始文件名', data.originalFileName],
+  ]
+  const showVersionSection =
+    data.projectStage === '实施阶段' && data.isDeliverable
+
+  return (
+    <ScrollShadow className="h-full">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
+        <section className="rounded-lg border border-default-200 bg-content1 p-4 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-foreground">基础信息</h2>
+            <div className="flex gap-2">
+              {data.isConfidential ? (
+                <Chip size="sm" color="warning" variant="flat">
+                  保密
+                </Chip>
+              ) : null}
+              {data.canPreview ? (
+                <Chip size="sm" color="success" variant="flat">
+                  可预览
+                </Chip>
+              ) : (
+                <Chip size="sm" color="warning" variant="flat">
+                  仅元数据
+                </Chip>
+              )}
+            </div>
+          </div>
+          <InfoGrid items={baseItems} />
+        </section>
+
+        {showVersionSection ? (
+          <section className="rounded-lg border border-default-200 bg-content1 p-4 shadow-sm">
+            <h2 className="mb-3 text-base font-semibold text-foreground">
+              版本信息
+            </h2>
+            <InfoGrid items={versionItems} />
+            {data.versions.length > 1 ? (
+              <>
+                <Divider className="my-4" />
+                <div className="space-y-2">
+                  {data.versions.map((version) => {
+                    const current = version.fileId === data.fileId
+                    return (
+                      <div
+                        key={version.fileId}
+                        className="flex items-center gap-3 rounded-md border border-default-200 px-3 py-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium text-foreground">
+                              V{version.versionNo}
+                            </span>
+                            {version.versionLabel ? (
+                              <span className="text-sm text-default-500">
+                                {version.versionLabel}
+                              </span>
+                            ) : null}
+                            {version.isLatest ? (
+                              <Chip size="sm" color="primary" variant="flat">
+                                最新
+                              </Chip>
+                            ) : null}
+                            {current ? (
+                              <Chip size="sm" variant="flat">
+                                当前
+                              </Chip>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 truncate text-xs text-default-500">
+                            {version.fileName} · {formatDateTime(version.createdAt)}
+                          </p>
+                        </div>
+                        {current ? null : (
+                          <Button
+                            as={Link}
+                            href={`/files/${version.fileId}/preview`}
+                            size="sm"
+                            variant="flat"
+                          >
+                            查看
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
+        <section className="rounded-lg border border-default-200 bg-content1 shadow-sm">
+          {data.canPreview ? (
+            <FilePreviewInteractionPanel
+              fileId={data.fileId}
+              favorite={data.interactions.favorite}
+              recommend={data.interactions.recommend}
+              recommendStats={data.recommendStats}
+              topLevelComments={data.comments}
+              onSocialUpdate={onSocialUpdate}
+              onTopLevelCommentAdded={onTopLevelCommentAdded}
+            />
+          ) : (
+            <div className="p-4 text-sm text-default-500">
+              无内容权限，互动信息暂不展示。
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-default-200 bg-content1 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">
+                文件切块
+              </h2>
+              <p className="mt-1 text-sm text-default-500">
+                {data.chunkTotal > 0
+                  ? `共 ${data.chunkTotal} 个切块，当前显示前 ${data.chunks.length} 个`
+                  : '暂无切块数据'}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="flat"
+              isDisabled={data.chunks.length === 0}
+              endContent={
+                <Icon
+                  icon={chunksOpen ? 'lucide:chevron-up' : 'lucide:chevron-down'}
+                  className="size-4"
+                />
+              }
+              onPress={() => setChunksOpen((open) => !open)}
+            >
+              {chunksOpen ? '收起' : '查看'}
+            </Button>
+          </div>
+          {chunksOpen ? (
+            <div className="mt-4 space-y-2">
+              {data.chunks.map((chunk) => (
+                <div
+                  key={chunk.id}
+                  className="rounded-md border border-default-200 bg-default-50 p-3 dark:bg-default-100/20"
+                >
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-default-500">
+                    <span>{chunkLocation(chunk)}</span>
+                    {chunk.sectionTitle ? <span>{chunk.sectionTitle}</span> : null}
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-default-700">
+                    {chunk.content}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </ScrollShadow>
+  )
+}
+
 export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
   const [data, setData] = useState<FilePreviewLoadResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [statusRefreshing, setStatusRefreshing] = useState(false)
   const [downloading, setDownloading] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [viewMode, setViewMode] = useState<PreviewViewMode>('preview')
   const previewHostRef = useRef<HTMLDivElement>(null)
   const [previewFullscreen, setPreviewFullscreen] = useState(false)
   const [watermarkTime] = useState(() => new Date())
@@ -278,15 +537,6 @@ export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
     data?.payload.kind === 'csv' ||
     data?.payload.kind === 'text' ||
     data?.payload.kind === 'markdown'
-
-  const metadata = useMemo(() => {
-    if (!data) return []
-    return [
-      ['类型', previewKindLabel(data)],
-      ['大小', formatFileSize(data.fileSize)],
-      ['上传者', data.uploaderName],
-    ] as const
-  }, [data])
 
   const watermarkText = useMemo(() => {
     if (!data) return ''
@@ -379,24 +629,26 @@ export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
               <Icon icon="lucide:refresh-cw" className="size-4" />
             </Button>
           </Tooltip>
-          <Tooltip content={sidebarOpen ? '收起侧栏' : '展开侧栏'}>
+          <div className="mx-1 flex rounded-medium bg-default-100 p-1">
             <Button
-              isIconOnly
               size="sm"
-              variant="light"
-              aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
-              onPress={() => setSidebarOpen((open) => !open)}
+              variant={viewMode === 'preview' ? 'solid' : 'light'}
+              color={viewMode === 'preview' ? 'primary' : 'default'}
+              className="h-7 px-3"
+              onPress={() => setViewMode('preview')}
             >
-              <Icon
-                icon={
-                  sidebarOpen
-                    ? 'lucide:panel-right-close'
-                    : 'lucide:panel-right-open'
-                }
-                className="size-4"
-              />
+              文件预览
             </Button>
-          </Tooltip>
+            <Button
+              size="sm"
+              variant={viewMode === 'info' ? 'solid' : 'light'}
+              color={viewMode === 'info' ? 'primary' : 'default'}
+              className="h-7 px-3"
+              onPress={() => setViewMode('info')}
+            >
+              文件信息
+            </Button>
+          </div>
           {data.canPreview ? (
             <>
               <Tooltip content="下载原文件">
@@ -435,110 +687,53 @@ export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
       </header>
 
       <main
-        className={clsx(
-          'grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-2 md:p-3 lg:gap-4 lg:p-4',
-          sidebarOpen
-            ? 'grid-rows-[minmax(0,1fr)_minmax(0,280px)] lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-none'
-            : 'grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)]'
-        )}
+        className="min-h-0 flex-1 overflow-hidden p-2 md:p-3 lg:p-4"
       >
-        <section
-          ref={previewHostRef}
-          className={clsx(
-            'flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-default-200 bg-content1 shadow-sm',
-            previewFullscreen && 'h-screen w-screen rounded-none border-0'
-          )}
-        >
-          <PreviewProtectedShell
+        {viewMode === 'preview' ? (
+          <section
+            ref={previewHostRef}
             className={clsx(
-              'file-preview-scrollbar relative min-h-0 flex-1 overflow-auto overscroll-contain bg-default-100/70',
-              isPdf || isDocumentLike
-                ? 'flex flex-col'
-                : 'flex items-center justify-center p-4'
+              'flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-default-200 bg-content1 shadow-sm',
+              previewFullscreen && 'h-screen w-screen rounded-none border-0'
             )}
           >
-            {isPdf || isDocumentLike ? (
-              renderPayload(data)
-            ) : (
-              <div className="flex min-h-full w-full items-center justify-center">
-                {renderPayload(data)}
-              </div>
-            )}
-          </PreviewProtectedShell>
-        </section>
-
-        {sidebarOpen ? (
-          <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-default-200 bg-content1 shadow-sm">
-            <ScrollShadow className="min-h-0 flex-1">
-              <div className="space-y-4 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-default-500">
-                    文件侧栏
-                  </p>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="light"
-                    aria-label="收起侧栏"
-                    onPress={() => setSidebarOpen(false)}
-                  >
-                    <Icon icon="lucide:x" className="size-4" />
-                  </Button>
+            <PreviewProtectedShell
+              className={clsx(
+                'file-preview-scrollbar relative min-h-0 flex-1 overflow-auto overscroll-contain bg-default-100/70',
+                isPdf || isDocumentLike
+                  ? 'flex flex-col'
+                  : 'flex items-center justify-center p-4'
+              )}
+            >
+              {isPdf || isDocumentLike ? (
+                renderPayload(data)
+              ) : (
+                <div className="flex min-h-full w-full items-center justify-center">
+                  {renderPayload(data)}
                 </div>
-
-                <section>
-                  <p className="mb-2 text-xs font-medium text-default-500">
-                    处理状态
-                  </p>
-                  <FileProcessStatusStrip status={data.processStatus} />
-                </section>
-
-                <Divider />
-
-                <section>
-                  <p className="mb-3 text-xs font-medium text-default-500">
-                    文件信息
-                  </p>
-                  <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
-                    {metadata.map(([label, value]) => (
-                      <div key={label} className="contents">
-                        <dt className="text-default-500">{label}</dt>
-                        <dd className="min-w-0 truncate text-foreground">
-                          {value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              </div>
-
-              {data.canPreview ? (
-                <>
-                  <Divider />
-                  <FilePreviewInteractionPanel
-                    fileId={data.fileId}
-                    favorite={data.interactions.favorite}
-                    recommend={data.interactions.recommend}
-                    recommendStats={data.recommendStats}
-                    topLevelComments={data.comments}
-                    onSocialUpdate={(patch) =>
-                      setData((prev) => (prev ? { ...prev, ...patch } : null))
-                    }
-                    onTopLevelCommentAdded={(comment) =>
-                      setData((prev) =>
-                        prev
-                          ? { ...prev, comments: [...prev.comments, comment] }
-                          : null
-                      )
-                    }
-                  />
-                </>
-              ) : null}
-            </ScrollShadow>
-          </aside>
-        ) : null}
+              )}
+            </PreviewProtectedShell>
+          </section>
+        ) : (
+          <section className="h-full min-h-0 overflow-hidden rounded-lg border border-default-200 bg-default-50 shadow-sm">
+            <FileProcessStatusStrip status={data.processStatus} />
+            <FileInfoView
+              data={data}
+              onSocialUpdate={(patch) =>
+                setData((prev) => (prev ? { ...prev, ...patch } : null))
+              }
+              onTopLevelCommentAdded={(comment) =>
+                setData((prev) =>
+                  prev
+                    ? { ...prev, comments: [...prev.comments, comment] }
+                    : null
+                )
+              }
+            />
+          </section>
+        )}
       </main>
-      {data.canPreview ? (
+      {data.canPreview && viewMode === 'preview' ? (
         <PreviewWatermark text={watermarkText} anchorRef={previewHostRef} />
       ) : null}
     </div>

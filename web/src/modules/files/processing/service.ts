@@ -29,7 +29,7 @@ export async function loadFileProcessStatus(fileId: string): Promise<{
 
   const row = await getFileRowForPreview(id)
   if (!row) throw new ValidationError('文件不存在')
-  if (!canAccessFileBinary(user, row)) {
+  if (!(await canAccessFileBinary(user, row))) {
     throw new ValidationError('无权查看该文件处理状态')
   }
 

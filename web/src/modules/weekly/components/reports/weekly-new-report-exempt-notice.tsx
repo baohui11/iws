@@ -1,3 +1,4 @@
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 
 interface WeeklyNewReportExemptNoticeProps {
@@ -13,7 +14,7 @@ export default function WeeklyNewReportExemptNotice({
   const scope = [projectName, weekLabel].filter(Boolean).join(' · ')
 
   return (
-    <div className="container mx-auto flex min-h-[min(70vh,720px)] max-w-3xl flex-col px-4 py-6 sm:py-8">
+    <PageShell width="sm" className="flex min-h-[min(70vh,720px)] flex-col">
       <SubpageHeader
         showBack
         title="新建周报"
@@ -27,6 +28,6 @@ export default function WeeklyNewReportExemptNotice({
           项目经理已经设置本周无工作周
         </p>
       </div>
-    </div>
+    </PageShell>
   )
 }

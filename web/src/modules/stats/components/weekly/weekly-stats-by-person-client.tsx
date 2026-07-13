@@ -43,7 +43,8 @@ export default function WeeklyStatsByPersonClient({
       s.departmentId,
       s.weekCode,
       s.personKeyword || null,
-      s.projectKeyword || null
+      s.projectKeyword || null,
+      s.projectStage || null
     )
     setLoading(false)
     if (!result.success) {
@@ -63,6 +64,7 @@ export default function WeeklyStatsByPersonClient({
         weekCode: initialWeekCode,
         personKeyword: '',
         projectKeyword: '',
+        projectStage: '',
       })
     }
   }, [initialDepartmentId, initialWeekCode, runQuery])

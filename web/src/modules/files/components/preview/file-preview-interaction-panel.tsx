@@ -1,6 +1,6 @@
 'use client'
 
-import { Avatar, Button, Divider, Textarea } from '@heroui/react'
+import { Avatar, Button, Textarea } from '@heroui/react'
 import { Icon } from '@iconify/react'
 import { useCallback, useState } from 'react'
 import {
@@ -167,72 +167,78 @@ export default function FilePreviewInteractionPanel({
   )
 
   return (
-    <div className="flex flex-col">
-      <section className="space-y-3 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-default-500">互动</p>
-            <p className="mt-1 text-xs text-default-400">
-              {recommendStats.count} 人推荐
-            </p>
+    <div className="space-y-5 p-4">
+      <section className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-foreground">
+            互动与评论
+          </h2>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-default-500">
+            <span>{recommendStats.count} 人推荐</span>
+            <span className="text-default-300">/</span>
+            <span>{topLevelComments.length} 条评论</span>
           </div>
-          <div className="flex items-center gap-1">
+          {recommendStats.sampleUsers.length > 0 ? (
+            <div className="mt-3 flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 items-center -space-x-1.5 overflow-hidden ps-0.5 rtl:space-x-reverse">
+                {recommendStats.sampleUsers.map((u) => (
+                  <Avatar
+                    key={u.userId}
+                    className="size-7 ring-2 ring-content1"
+                    radius="full"
+                    size="sm"
+                    src={u.avatarUrl ?? undefined}
+                    name={u.name}
+                  />
+                ))}
+              </div>
+              <span className="truncate text-xs text-default-400">
+                最近推荐
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
             <Button
-              isIconOnly
               size="sm"
               variant={recommend ? 'flat' : 'light'}
               color={recommend ? 'primary' : 'default'}
               aria-label={recommend ? '取消推荐' : '推荐'}
               isLoading={pending === 'recommend'}
               isDisabled={pending !== null}
+              startContent={
+                pending === 'recommend' ? null : (
+                  <Icon icon="lucide:thumbs-up" className="size-4" />
+                )
+              }
               onPress={() => void runToggle('recommend')}
             >
-              <Icon icon="lucide:thumbs-up" className="size-4" />
+              {recommend ? '已推荐' : '推荐'}
             </Button>
             <Button
-              isIconOnly
               size="sm"
               variant={favorite ? 'flat' : 'light'}
               color={favorite ? 'warning' : 'default'}
               aria-label={favorite ? '取消收藏' : '收藏'}
               isLoading={pending === 'favorite'}
               isDisabled={pending !== null}
+              startContent={
+                pending === 'favorite' ? null : (
+                  <Icon
+                    icon="lucide:star"
+                    className={favorite ? 'size-4 fill-current' : 'size-4'}
+                  />
+                )
+              }
               onPress={() => void runToggle('favorite')}
             >
-              <Icon
-                icon={favorite ? 'lucide:star' : 'lucide:star'}
-                className={favorite ? 'size-4 fill-current' : 'size-4'}
-              />
+              {favorite ? '已收藏' : '收藏'}
             </Button>
-          </div>
         </div>
-
-        {recommendStats.sampleUsers.length > 0 ? (
-          <div className="flex min-w-0 items-center -space-x-1.5 overflow-hidden ps-0.5 rtl:space-x-reverse">
-            {recommendStats.sampleUsers.map((u) => (
-              <Avatar
-                key={u.userId}
-                className="size-7 ring-2 ring-content1"
-                radius="full"
-                size="sm"
-                src={u.avatarUrl ?? undefined}
-                name={u.name}
-              />
-            ))}
-          </div>
-        ) : null}
       </section>
 
-      <Divider />
-
-      <section className="space-y-3 p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-default-500">评论</p>
-          <span className="text-xs text-default-400">
-            {topLevelComments.length}
-          </span>
-        </div>
-
+      <section className="rounded-lg border border-default-200 bg-default-50 p-3 dark:bg-default-100/20">
         <Textarea
           minRows={2}
           maxRows={5}
@@ -242,28 +248,31 @@ export default function FilePreviewInteractionPanel({
           value={rootDraft}
           onValueChange={setRootDraft}
           description={`${rootDraft.length}/${MAX_DRAFT}`}
+          variant="bordered"
+          classNames={{
+            inputWrapper: 'bg-content1',
+          }}
         />
-        <Button
-          size="sm"
-          color="primary"
-          className="w-full"
-          isLoading={rootSubmitting}
-          isDisabled={!rootDraft.trim()}
-          onPress={() => void submitRoot()}
-        >
-          发布评论
-        </Button>
+        <div className="mt-2 flex justify-end">
+          <Button
+            size="sm"
+            color="primary"
+            isLoading={rootSubmitting}
+            isDisabled={!rootDraft.trim()}
+            onPress={() => void submitRoot()}
+          >
+            发布评论
+          </Button>
+        </div>
       </section>
 
-      <Divider />
-
-      <section className="p-4">
+      <section>
         {topLevelComments.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-default-200 px-3 py-8 text-center">
+          <div className="rounded-lg border border-dashed border-default-200 bg-default-50 px-3 py-8 text-center dark:bg-default-100/20">
             <p className="text-sm text-default-400">暂无评论</p>
           </div>
         ) : (
-          <ul className="space-y-4">
+          <ul className="space-y-3">
             {topLevelComments.map((comment) => {
               const open = expandedRootIds.has(comment.id)
               const thread = threadByRoot[comment.id]
@@ -272,7 +281,7 @@ export default function FilePreviewInteractionPanel({
 
               return (
                 <li key={comment.id} className="space-y-3">
-                  <div className="flex gap-2.5">
+                  <div className="flex gap-3 rounded-lg border border-default-200 bg-default-50 p-3 dark:bg-default-100/20">
                     <CommentAvatar
                       name={comment.userName}
                       src={comment.avatarUrl}
@@ -357,7 +366,7 @@ export default function FilePreviewInteractionPanel({
                   ) : null}
 
                   {replying ? (
-                    <div className="ms-11 rounded-lg bg-default-100 p-3">
+                    <div className="ms-11 rounded-lg border border-default-200 bg-default-50 p-3 dark:bg-default-100/20">
                       <Textarea
                         minRows={2}
                         maxRows={5}

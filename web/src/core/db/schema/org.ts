@@ -42,6 +42,7 @@ export const users = pgTable('users', {
   deletedAt: timestamp({ withTimezone: true }),
   role: systemRoles().default('user'),
   tags: text(),
+  inviteSentAt: timestamp({ withTimezone: true }),
 })
 
 export const userDataScopes = pgTable(

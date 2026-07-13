@@ -1,3 +1,4 @@
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import MyAttendanceDetailsClient from '@/modules/weekly/components/attendance/my-attendance-details-client'
 import { requireUser } from '@/core/auth'
@@ -8,12 +9,12 @@ export default async function WeeklyAttendancePage() {
   const initialYearMonth = getYearMonthOfCurrentWeek()
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <SubpageHeader title="我的考勤" />
 
       <div className="rounded-2xl border border-default-200/80 bg-content1 p-5 shadow-sm md:p-6">
         <MyAttendanceDetailsClient initialYearMonth={initialYearMonth} />
       </div>
-    </div>
+    </PageShell>
   )
 }

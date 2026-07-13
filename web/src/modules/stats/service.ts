@@ -14,6 +14,7 @@ import {
   getWeeklyDeptByPerson,
   getWeeklyDeptByProject,
   getWeeklyDeptDetails,
+  getWeeklyProjectPersonRange,
   listFileDownloadDetailsForAudit,
   listFilesStatsPage,
 } from './repo'
@@ -32,7 +33,8 @@ function buildWeeklyParams(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   const d = departmentId?.trim()
   const w = weekCode?.trim()
@@ -43,6 +45,7 @@ function buildWeeklyParams(
     weekCode: w,
     personNameKeyword: personNameKeyword?.trim() || undefined,
     projectKeyword: projectKeyword?.trim() || undefined,
+    projectStage: projectStage?.trim() || undefined,
   }
 }
 
@@ -146,11 +149,12 @@ export async function loadWeeklyDeptByPerson(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   const user = await requireUser()
   await assertDeptStatsAccess(user, departmentId)
-  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword)
+  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
   return getWeeklyDeptByPerson(params)
 }
 
@@ -158,11 +162,12 @@ export async function loadWeeklyDeptByProject(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   const user = await requireUser()
   await assertDeptStatsAccess(user, departmentId)
-  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword)
+  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
   return getWeeklyDeptByProject(params)
 }
 
@@ -170,12 +175,40 @@ export async function loadWeeklyDeptDetails(
   departmentId: string,
   weekCode: string,
   personNameKeyword?: string | null,
-  projectKeyword?: string | null
+  projectKeyword?: string | null,
+  projectStage?: string | null
 ) {
   const user = await requireUser()
   await assertDeptStatsAccess(user, departmentId)
-  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword)
+  const params = buildWeeklyParams(departmentId, weekCode, personNameKeyword, projectKeyword, projectStage)
   return getWeeklyDeptDetails(params)
+}
+
+export async function loadWeeklyProjectPersonRange(input: {
+  departmentId: string
+  projectKeyword: string
+  projectStage?: string | null
+  weekCodeFrom: string
+  weekCodeTo: string
+  personNameKeyword?: string | null
+}) {
+  const user = await requireUser()
+  const departmentId = input.departmentId?.trim()
+  if (!departmentId) throw new ValidationError('请选择部门')
+  await assertDeptStatsAccess(user, departmentId)
+  const projectKeyword = input.projectKeyword?.trim()
+  if (!projectKeyword) throw new ValidationError('请输入项目名称或编号')
+  const from = input.weekCodeFrom?.trim()
+  const to = input.weekCodeTo?.trim()
+  if (!from || !to) throw new ValidationError('请选择周区间')
+  return getWeeklyProjectPersonRange({
+    departmentId,
+    projectKeyword,
+    projectStage: input.projectStage?.trim() || undefined,
+    weekCodeFrom: from,
+    weekCodeTo: to,
+    personNameKeyword: input.personNameKeyword?.trim() || undefined,
+  })
 }
 
 export async function getWeeklyStatsPageData() {

@@ -19,6 +19,7 @@ export interface UserRow {
   avatar_url: string | null
   is_active: boolean
   is_dept_leader: boolean
+  invite_sent_at: string | null
   created_at: string
   deleted_at: string | null
 }
@@ -124,6 +125,7 @@ const baseColumns = {
   avatar_url: users.avatarUrl,
   is_active: users.isActive,
   is_dept_leader: users.isDeptLeader,
+  invite_sent_at: users.inviteSentAt,
   created_at: users.createdAt,
   deleted_at: users.deletedAt,
   department_name: departments.name,
@@ -143,6 +145,7 @@ function mapRow(r: Record<string, unknown>): UserWithDepartment {
     avatar_url: (r.avatar_url as string | null) ?? null,
     is_active: Boolean(r.is_active),
     is_dept_leader: Boolean(r.is_dept_leader),
+    invite_sent_at: toIso(r.invite_sent_at as Date | string | null),
     created_at: toIso(r.created_at as Date | string | null)!,
     deleted_at: toIso(r.deleted_at as Date | string | null),
     department_name: (r.department_name as string | null) ?? '',
@@ -418,6 +421,48 @@ export async function updateUserRow(id: string, updates: UpdateUserData) {
       ...(updates.is_active !== undefined ? { isActive: updates.is_active } : {}),
     })
     .where(eq(users.id, id))
+}
+
+export async function listUsersForInvite(input: {
+  ids: string[]
+  allowed_department_ids?: string[] | null
+}) {
+  const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) return []
+
+  const db = getDb()
+  const conds = [
+    inArray(users.id, ids),
+    isNull(users.deletedAt),
+    eq(users.isActive, true),
+    isNull(users.inviteSentAt),
+  ]
+  if (input.allowed_department_ids) {
+    conds.push(
+      inArray(
+        users.departmentId,
+        input.allowed_department_ids.length ? input.allowed_department_ids : ['']
+      )
+    )
+  }
+
+  return db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      employee_no: users.employeeNo,
+    })
+    .from(users)
+    .where(and(...conds))
+}
+
+export async function markInviteSentAt(userId: string, sentAt: Date) {
+  const db = getDb()
+  await db
+    .update(users)
+    .set({ inviteSentAt: sentAt })
+    .where(eq(users.id, userId))
 }
 
 export async function listUsersForLeaderPick() {

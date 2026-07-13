@@ -1,12 +1,13 @@
 'use client'
 
+import { memo } from 'react'
 import {
+  Avatar,
+  Badge,
   Dropdown,
   DropdownTrigger,
   DropdownMenu,
   DropdownItem,
-  Badge,
-  Avatar,
   Button,
 } from '@heroui/react'
 import { useRouter } from 'next/navigation'
@@ -18,7 +19,7 @@ interface UserMenuProps {
   initialUser: CurrentUser | null
 }
 
-export default function UserMenu({ initialUser }: UserMenuProps) {
+function UserMenu({ initialUser }: UserMenuProps) {
   const router = useRouter()
 
   const handleSignOut = async () => {
@@ -41,7 +42,10 @@ export default function UserMenu({ initialUser }: UserMenuProps) {
     )
   }
 
-  const avatarName = initialUser.name?.charAt(0)?.toUpperCase() ?? ''
+  const avatarName =
+    initialUser.name?.trim().charAt(0)?.toUpperCase() ??
+    initialUser.email?.trim().charAt(0)?.toUpperCase() ??
+    'U'
 
   return (
     <Dropdown placement="bottom-end">
@@ -52,6 +56,7 @@ export default function UserMenu({ initialUser }: UserMenuProps) {
           variant="light"
           size="sm"
           className="overflow-visible"
+          aria-label="用户菜单"
         >
           <Badge color="success" content="" placement="bottom-right" shape="circle">
             <Avatar
@@ -82,3 +87,5 @@ export default function UserMenu({ initialUser }: UserMenuProps) {
     </Dropdown>
   )
 }
+
+export default memo(UserMenu)

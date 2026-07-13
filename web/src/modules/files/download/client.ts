@@ -1,6 +1,7 @@
 'use client'
 
 import { fetchJsonOrThrow } from '@/core/client/fetch-json'
+import { getEncryptGatewayHeaders } from '@/modules/files/lib/encrypt-gateway-client'
 
 /**
  * 经预签名 URL 从 MinIO 直连下载。
@@ -21,6 +22,7 @@ export async function downloadProjectFile(fileId: string): Promise<void> {
     credentials: 'omit',
     mode: 'cors',
     cache: 'no-store',
+    headers: getEncryptGatewayHeaders(),
   })
 
   if (!fileRes.ok) {

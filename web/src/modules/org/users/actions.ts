@@ -56,6 +56,22 @@ export async function updateUserAdminSettings(input: {
   return result
 }
 
+export async function activateUsers(input: { ids: string[] }) {
+  const result = await run(() => svc.activateUsers(input))
+  if (result.success) {
+    revalidatePath('/admin/users')
+  }
+  return result
+}
+
+export async function sendUserInvites(input: { ids: string[] }) {
+  const result = await run(() => svc.sendInvitesToUsers(input))
+  if (result.success) {
+    revalidatePath('/admin/users')
+  }
+  return result
+}
+
 export async function listDataScopesAction() {
   return run(() => svc.listDataScopes())
 }

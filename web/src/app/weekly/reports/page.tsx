@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import MyFilledReportsView from '@/modules/weekly/components/reports/my-filled-reports-view'
 import WeeklyReportsHeaderActions from '@/modules/weekly/components/reports/weekly-reports-header-actions'
@@ -59,7 +60,7 @@ export default async function WeeklyReportsPage({ searchParams }: PageProps) {
   ])
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <SubpageHeader title="我的周报" className="mb-0" />
         <WeeklyReportsHeaderActions
@@ -80,6 +81,6 @@ export default async function WeeklyReportsPage({ searchParams }: PageProps) {
           />
         </Suspense>
       </div>
-    </div>
+    </PageShell>
   )
 }

@@ -376,10 +376,17 @@ export async function insertDeliverableFileRow(
   input: InsertDeliverableFileInput
 ): Promise<void> {
   const db = getDb()
+  const [project] = await db
+    .select({ department_id: projects.departmentId })
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .limit(1)
   await db.insert(files).values({
     id: input.id,
     projectId: input.projectId,
+    departmentId: project?.department_id ?? null,
     fileName: input.fileName,
+    originalFileName: input.fileName,
     fileSize: input.fileSize,
     fileExt: input.fileExt,
     mimeType: input.mimeType,
@@ -390,6 +397,8 @@ export async function insertDeliverableFileRow(
     versionLabel: input.versionLabel,
     isLatest: true,
     isDeliverable: true,
+    businessType:
+      input.projectStage === PROJECT_STAGE_SALES ? 'sales_file' : 'deliverable',
     contractDeliverableId: input.contractDeliverableId,
     projectStage: input.projectStage,
     salesFileTag: input.salesFileTag,
@@ -407,10 +416,17 @@ export async function insertReferenceFileRow(
 ): Promise<void> {
   const db = getDb()
   const vg = randomUUID()
+  const [project] = await db
+    .select({ department_id: projects.departmentId })
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .limit(1)
   await db.insert(files).values({
     id: input.id,
     projectId: input.projectId,
+    departmentId: project?.department_id ?? null,
     fileName: input.fileName,
+    originalFileName: input.fileName,
     fileSize: input.fileSize,
     fileExt: input.fileExt,
     mimeType: input.mimeType,
@@ -421,6 +437,8 @@ export async function insertReferenceFileRow(
     versionLabel: null,
     isLatest: true,
     isDeliverable: false,
+    businessType:
+      input.projectStage === PROJECT_STAGE_SALES ? 'sales_file' : 'reference',
     contractDeliverableId: null,
     projectStage: input.projectStage,
     salesFileTag: input.salesFileTag,

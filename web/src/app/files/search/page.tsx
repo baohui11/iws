@@ -2,6 +2,7 @@ import FileSearchPageClient, {
   type FileSearchInitial,
 } from '@/modules/files/components/search/file-search-page-client'
 import { getFileSearchPageData } from '@/modules/files/search/page-data'
+import type { DocSearchMode } from '@/modules/files/types'
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -17,13 +18,21 @@ function firstParam(
   return ''
 }
 
+function parseMode(value: string): DocSearchMode {
+  if (value === 'keyword' || value === 'semantic' || value === 'metadata') {
+    return value
+  }
+  return 'hybrid'
+}
+
 export default async function FileSearchPage({ searchParams }: PageProps) {
   const sp = await searchParams
-  const { departmentOptions, projectOptions } = await getFileSearchPageData()
+  const { departmentOptions } = await getFileSearchPageData()
 
   const initialFilters: FileSearchInitial = {
     q: firstParam(sp, 'q'),
-    projectId: firstParam(sp, 'project_id'),
+    mode: parseMode(firstParam(sp, 'mode')),
+    projectName: firstParam(sp, 'project_name'),
     departmentId: firstParam(sp, 'department_id'),
     fileType: firstParam(sp, 'file_type'),
     fileExt: firstParam(sp, 'file_ext'),
@@ -32,7 +41,6 @@ export default async function FileSearchPage({ searchParams }: PageProps) {
   return (
     <FileSearchPageClient
       departmentOptions={departmentOptions}
-      projectOptions={projectOptions}
       initialFilters={initialFilters}
     />
   )

@@ -68,8 +68,26 @@ export interface FilePreviewCommentRow {
 export interface FilePreviewLoadResult {
   fileId: string
   fileName: string
+  originalFileName: string | null
   fileSize: number
   fileExt: string | null
+  mimeType: string | null
+  createdAt: string
+  projectId: string
+  projectName: string | null
+  projectNo: string | null
+  departmentName: string | null
+  projectStage: string | null
+  isConfidential: boolean
+  isDeliverable: boolean
+  fileSource: string | null
+  salesFileTag: string | null
+  businessType: string | null
+  contractDeliverableName: string | null
+  versionGroupId: string
+  versionNo: number
+  versionLabel: string | null
+  isLatest: boolean | null
   /** 是否有权查看实际预览内容（下载同源） */
   canPreview: boolean
   /** 上传者展示名 */
@@ -84,6 +102,30 @@ export interface FilePreviewLoadResult {
   interactions: { favorite: boolean; recommend: boolean }
   recommendStats: FilePreviewRecommendStats
   comments: FilePreviewCommentRow[]
+  versions: FilePreviewVersionRow[]
+  chunks: FilePreviewChunkRow[]
+  chunkTotal: number
+}
+
+export interface FilePreviewVersionRow {
+  fileId: string
+  fileName: string
+  versionNo: number
+  versionLabel: string | null
+  isLatest: boolean | null
+  createdAt: string
+}
+
+export interface FilePreviewChunkRow {
+  id: string
+  chunkIndex: number
+  content: string
+  pageNo: number | null
+  slideNo: number | null
+  sheetName: string | null
+  rowStart: number | null
+  rowEnd: number | null
+  sectionTitle: string | null
 }
 
 /** 与 DB file_source 一致；若库中已增加枚举值，在此补充 */
@@ -134,19 +176,24 @@ export type DocSearchFilterKey =
   | 'department_id'
   | 'project_id'
   | 'uploader_id'
+  | 'project_stage'
   | 'department_name'
   | 'project_name'
   | 'file_name'
   | 'file_type'
   | 'file_ext'
+  | 'is_confidential'
   | 'content_degraded'
 
 export type DocSearchFilters = Partial<
   Record<DocSearchFilterKey, string | boolean>
 >
 
+export type DocSearchMode = 'hybrid' | 'keyword' | 'semantic' | 'metadata'
+
 export interface DocSearchRequestBody {
   q?: string
+  mode?: DocSearchMode
   limit?: number
   offset?: number
   filters?: DocSearchFilters
@@ -159,9 +206,22 @@ export interface DocSearchHitFormatted {
   file_name?: string
 }
 
+export interface DocSearchSnippet {
+  content: string
+  formatted?: string
+  page_no?: number | null
+  slide_no?: number | null
+  sheet_name?: string | null
+  row_start?: number | null
+  row_end?: number | null
+  chunk_index: number
+  rank_score?: number | null
+}
+
 export interface DocSearchHit {
   id: string
   content?: string
+  snippets?: DocSearchSnippet[]
   _formatted?: DocSearchHitFormatted
   content_degraded?: boolean
   file_name?: string
@@ -175,11 +235,21 @@ export interface DocSearchHit {
   department_name?: string
   source_storage_key?: string
   created_at?: string
+  project_stage?: string
+  is_confidential?: boolean
+  can_access_content?: boolean
+  matched_by?: 'metadata' | 'fulltext' | 'vector' | 'hybrid'
+  metadata_score?: number | null
+  keyword_score?: number | null
+  vector_score?: number | null
+  final_score?: number | null
+  disabled_reason?: string
 }
 
 export interface DocSearchResponse {
   hits: DocSearchHit[]
   query: string
+  mode?: DocSearchMode
   limit: number
   offset: number
   estimatedTotalHits: number | null
@@ -235,7 +305,13 @@ export {
 export interface FileRowPreview {
   id: string
   project_id: string
+  department_id: string | null
+  project_stage: ProjectStageValue
+  project_name: string | null
+  project_no: string | null
+  department_name: string | null
   file_name: string
+  original_file_name: string | null
   file_size: number
   file_ext: string | null
   mime_type: string | null
@@ -246,6 +322,16 @@ export interface FileRowPreview {
   index_status: string | null
   /** 客户敏感文件 */
   is_confidential: boolean
+  is_deliverable: boolean
+  file_source: string | null
+  sales_file_tag: string | null
+  business_type: string | null
+  contract_deliverable_name: string | null
+  version_group_id: string
+  version_no: number
+  version_label: string | null
+  is_latest: boolean | null
+  created_at: string
   uploader_id: string
   /** 上传者展示名 */
   uploader_name: string

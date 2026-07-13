@@ -10,6 +10,7 @@ import {
 } from '@/components/common/admin-table-controls'
 import { showErrorToast, showResultError } from '@/core/client/errors'
 import {
+  syncAllOaDataAction,
   syncOaDepartmentsAction,
   syncOaProjectRolesAction,
   syncOaProjectsAction,
@@ -25,6 +26,7 @@ import type {
 } from '@/modules/oa-sync/types'
 
 type Scope = OaSyncScope
+type PendingScope = Scope | 'all'
 
 type SyncResult =
   | { scope: 'departments'; data: OaSyncStats }
@@ -173,11 +175,17 @@ function ResultSummary({ result }: { result: SyncResult }) {
   )
 }
 
-export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[] }) {
+export default function OaSyncPanel({
+  recentRuns,
+  canRunSync,
+}: {
+  recentRuns: OaSyncRunRow[]
+  canRunSync: boolean
+}) {
   const router = useRouter()
-  const [pendingScope, setPendingScope] = useState<Scope | null>(null)
+  const [pendingScope, setPendingScope] = useState<PendingScope | null>(null)
   const [isPending, startTransition] = useTransition()
-  const [lastResult, setLastResult] = useState<SyncResult | null>(null)
+  const [lastResults, setLastResults] = useState<SyncResult[]>([])
   const [page, setPage] = useState(1)
   const pageSize = 20
   const totalPages = Math.ceil(recentRuns.length / pageSize)
@@ -187,31 +195,46 @@ export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[]
     return recentRuns.slice(start, start + pageSize)
   }, [page, recentRuns, totalPages])
 
-  const runSync = (scope: Scope) => {
+  const normalizeResult = (result: unknown): SyncResult => {
+    const item = result as SyncResult & { data?: unknown }
+    if (item.scope === 'departments') {
+      return { scope: item.scope, data: item as unknown as OaSyncStats }
+    }
+    if (item.scope === 'users') {
+      return { scope: item.scope, data: item as unknown as OaUserSyncStats }
+    }
+    if (item.scope === 'projects') {
+      return { scope: item.scope, data: item as unknown as OaProjectSyncStats }
+    }
+    return {
+      scope: 'project_roles',
+      data: item as unknown as OaProjectRoleSyncStats,
+    }
+  }
+
+  const runSync = (scope: PendingScope) => {
     setPendingScope(scope)
     startTransition(async () => {
       try {
-        const result = await (scope === 'departments'
-          ? syncOaDepartmentsAction()
-          : scope === 'users'
-            ? syncOaUsersAction()
-            : scope === 'projects'
-              ? syncOaProjectsAction()
-              : syncOaProjectRolesAction())
+        const result = await (scope === 'all'
+          ? syncAllOaDataAction()
+          : scope === 'departments'
+            ? syncOaDepartmentsAction()
+            : scope === 'users'
+              ? syncOaUsersAction()
+              : scope === 'projects'
+                ? syncOaProjectsAction()
+                : syncOaProjectRolesAction())
 
         if (!result.success) {
           showResultError(result, 'OA 同步失败')
           return
         }
 
-        if (scope === 'departments') {
-          setLastResult({ scope, data: result.data as OaSyncStats })
-        } else if (scope === 'users') {
-          setLastResult({ scope, data: result.data as OaUserSyncStats })
-        } else if (scope === 'projects') {
-          setLastResult({ scope, data: result.data as OaProjectSyncStats })
+        if (scope === 'all') {
+          setLastResults((result.data as unknown[]).map(normalizeResult))
         } else {
-          setLastResult({ scope, data: result.data as OaProjectRoleSyncStats })
+          setLastResults([normalizeResult(result.data)])
         }
         router.refresh()
       } catch (error) {
@@ -224,16 +247,35 @@ export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[]
 
   return (
     <div className="space-y-5">
+      {!canRunSync ? (
+        <div className="rounded-lg border border-default-200 bg-default-50 px-4 py-3 text-sm text-default-500">
+          当前账号可查看 OA 同步记录，只有系统管理员可以手动执行同步。
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-3">
         <Button
           color="primary"
+          startContent={
+            pendingScope !== 'all' ? (
+              <Icon icon="lucide:refresh-cw" className="size-4" aria-hidden />
+            ) : null
+          }
+          isLoading={isPending && pendingScope === 'all'}
+          isDisabled={isPending || !canRunSync}
+          onPress={() => runSync('all')}
+        >
+          一键同步全部
+        </Button>
+        <Button
+          color="primary"
+          variant="flat"
           startContent={
             pendingScope !== 'departments' ? (
               <Icon icon="lucide:building-2" className="size-4" aria-hidden />
             ) : null
           }
           isLoading={isPending && pendingScope === 'departments'}
-          isDisabled={isPending}
+          isDisabled={isPending || !canRunSync}
           onPress={() => runSync('departments')}
         >
           同步部门
@@ -247,7 +289,7 @@ export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[]
             ) : null
           }
           isLoading={isPending && pendingScope === 'users'}
-          isDisabled={isPending}
+          isDisabled={isPending || !canRunSync}
           onPress={() => runSync('users')}
         >
           同步用户
@@ -261,7 +303,7 @@ export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[]
             ) : null
           }
           isLoading={isPending && pendingScope === 'projects'}
-          isDisabled={isPending}
+          isDisabled={isPending || !canRunSync}
           onPress={() => runSync('projects')}
         >
           同步项目
@@ -275,14 +317,20 @@ export default function OaSyncPanel({ recentRuns }: { recentRuns: OaSyncRunRow[]
             ) : null
           }
           isLoading={isPending && pendingScope === 'project_roles'}
-          isDisabled={isPending}
+          isDisabled={isPending || !canRunSync}
           onPress={() => runSync('project_roles')}
         >
           同步项目角色
         </Button>
       </div>
 
-      {lastResult ? <ResultSummary result={lastResult} /> : null}
+      {lastResults.length > 0 ? (
+        <div className="space-y-3">
+          {lastResults.map((result) => (
+            <ResultSummary key={result.scope} result={result} />
+          ))}
+        </div>
+      ) : null}
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold">最近同步记录</h2>

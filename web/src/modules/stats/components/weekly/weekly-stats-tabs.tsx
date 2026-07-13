@@ -4,6 +4,7 @@ import { Tab, Tabs } from '@heroui/react'
 import WeeklyStatsByPersonClient from '@/modules/stats/components/weekly/weekly-stats-by-person-client'
 import WeeklyStatsByProjectClient from '@/modules/stats/components/weekly/weekly-stats-by-project-client'
 import WeeklyStatsDetailsClient from '@/modules/stats/components/weekly/weekly-stats-details-client'
+import WeeklyProjectPersonRangeClient from '@/modules/stats/components/weekly/weekly-project-person-range-client'
 import type { DeptOption, WeekOptionLite } from '@/modules/stats/types'
 
 export default function WeeklyStatsTabsClient({
@@ -41,6 +42,14 @@ export default function WeeklyStatsTabsClient({
         <Tab key="details" title="周报明细">
           <WeeklyStatsDetailsClient
             embedded
+            departmentOptions={departmentOptions}
+            weekOptions={weekOptions}
+            initialDepartmentId={initialDepartmentId}
+            initialWeekCode={initialWeekCode}
+          />
+        </Tab>
+        <Tab key="project-person-range" title="项目周区间">
+          <WeeklyProjectPersonRangeClient
             departmentOptions={departmentOptions}
             weekOptions={weekOptions}
             initialDepartmentId={initialDepartmentId}

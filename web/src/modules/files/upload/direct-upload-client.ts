@@ -1,5 +1,7 @@
 'use client'
 
+import { getEncryptGatewayHeaders } from '@/modules/files/lib/encrypt-gateway-client'
+
 export function uploadFileToSignedUrl(params: {
   file: File
   uploadUrl: string
@@ -12,6 +14,9 @@ export function uploadFileToSignedUrl(params: {
       'Content-Type',
       params.file.type || 'application/octet-stream'
     )
+    for (const [key, value] of Object.entries(getEncryptGatewayHeaders())) {
+      xhr.setRequestHeader(key, String(value))
+    }
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return

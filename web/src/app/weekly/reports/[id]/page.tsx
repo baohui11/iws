@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import PageShell from '@/components/common/page-shell'
 import WeeklyReportDetailView from '@/modules/weekly/components/reports/weekly-report-detail-view'
 import { requireUser } from '@/core/auth'
 import { loadWeeklyReportDetail } from '@/modules/weekly/report-editor/repo'
@@ -15,8 +16,8 @@ export default async function WeeklyReportDetailPage({ params }: PageProps) {
   if (!detail) notFound()
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-8">
+    <PageShell width="sm">
       <WeeklyReportDetailView detail={detail} viewerId={user.id} />
-    </div>
+    </PageShell>
   )
 }

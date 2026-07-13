@@ -67,6 +67,58 @@ class Repository:
         value = row.get("msg_id") or row.get("send") or next(iter(row.values()))
         return str(value)
 
+    def enqueue_stage(
+        self,
+        conn: psycopg.Connection,
+        *,
+        file_id: str,
+        stage: FileProcessStage,
+        input_payload: dict[str, Any] | None = None,
+    ) -> None:
+        payload_input = json.dumps(input_payload or {"version": 1})
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into file_process_tasks (file_id, stage, status, input)
+                values (%s::uuid, %s, 'pending', %s::jsonb)
+                on conflict (file_id, stage) do nothing
+                returning id
+                """,
+                (file_id, stage, payload_input),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.commit()
+                return
+            task_id = str(row["id"])
+            message_payload = {
+                "version": 1,
+                "taskId": task_id,
+                "fileId": file_id,
+                "stage": stage,
+            }
+            cur.execute(
+                "select * from pgmq.send(%s::text, %s::jsonb, %s::integer)",
+                (QUEUE_NAME, json.dumps(message_payload), 0),
+            )
+            msg_row = cur.fetchone()
+            msg_id = (
+                msg_row.get("msg_id")
+                or msg_row.get("send")
+                or next(iter(msg_row.values()))
+                if msg_row
+                else None
+            )
+            cur.execute(
+                """
+                update file_process_tasks
+                set pgmq_message_id = %s::bigint, updated_at = %s
+                where id = %s::uuid
+                """,
+                (int(msg_id) if msg_id is not None else None, datetime.now(UTC), task_id),
+            )
+        conn.commit()
+
     def claim_message(
         self,
         conn: psycopg.Connection,
@@ -77,12 +129,13 @@ class Repository:
             payload.get("version") != 1
             or not isinstance(payload.get("taskId"), str)
             or not isinstance(payload.get("fileId"), str)
-            or payload.get("stage") not in {"preview", "parse", "index"}
+            or payload.get("stage") not in {"preview", "parse", "index", "embed"}
         ):
             self.ack(conn, message.message_id)
             return None
 
         now = datetime.now(UTC)
+        stale_before = now - timedelta(seconds=self.settings.visibility_timeout_seconds)
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
@@ -95,12 +148,14 @@ class Repository:
                       t.attempts,
                       t.max_attempts,
                       t.input,
+                      t.locked_at,
                       f.project_id,
                       f.file_name,
                       f.file_size,
                       f.file_ext,
                       f.mime_type,
-                      f.source_storage_key
+                      f.source_storage_key,
+                      f.preview_storage_key
                     from file_process_tasks t
                     join files f on f.id = t.file_id
                     where t.id = %s::uuid
@@ -115,8 +170,15 @@ class Repository:
                 elif (
                     str(row["file_id"]) != payload["fileId"]
                     or row["stage"] != payload["stage"]
-                    or row["status"] != "pending"
                 ):
+                    should_ack = True
+                    claimed = None
+                elif row["status"] == "processing" and (
+                    not row["locked_at"] or row["locked_at"] > stale_before
+                ):
+                    should_ack = False
+                    claimed = None
+                elif row["status"] not in {"pending", "processing"}:
                     should_ack = True
                     claimed = None
                 else:
@@ -142,6 +204,50 @@ class Repository:
                         ),
                     )
                     updated = cur.fetchone()
+                    if row["stage"] == "preview":
+                        cur.execute(
+                            """
+                            update files
+                            set preview_status = 'processing',
+                                processing_updated_at = %s,
+                                updated_at = %s
+                            where id = %s::uuid
+                            """,
+                            (now, now, row["file_id"]),
+                        )
+                    elif row["stage"] == "parse":
+                        cur.execute(
+                            """
+                            update files
+                            set parse_status = 'processing',
+                                processing_updated_at = %s,
+                                updated_at = %s
+                            where id = %s::uuid
+                            """,
+                            (now, now, row["file_id"]),
+                        )
+                    elif row["stage"] == "index":
+                        cur.execute(
+                            """
+                            update files
+                            set index_status = 'processing',
+                                processing_updated_at = %s,
+                                updated_at = %s
+                            where id = %s::uuid
+                            """,
+                            (now, now, row["file_id"]),
+                        )
+                    elif row["stage"] == "embed":
+                        cur.execute(
+                            """
+                            update files
+                            set embedding_status = 'processing',
+                                processing_updated_at = %s,
+                                updated_at = %s
+                            where id = %s::uuid
+                            """,
+                            (now, now, row["file_id"]),
+                        )
                     attempts = int(updated["attempts"]) if updated else int(row["attempts"]) + 1
                     task = FileProcessTask(
                         id=str(row["id"]),
@@ -160,6 +266,7 @@ class Repository:
                         file_ext=row["file_ext"],
                         mime_type=row["mime_type"],
                         source_storage_key=row["source_storage_key"],
+                        preview_storage_key=row["preview_storage_key"],
                     )
                     should_ack = False
                     claimed = ClaimedTask(
@@ -171,6 +278,8 @@ class Repository:
 
         if should_ack:
             self.ack(conn, message.message_id)
+        else:
+            conn.commit()
         return claimed
 
     def mark_stage(
@@ -252,7 +361,193 @@ class Repository:
                     """,
                     (status, error_message, now, now, file_id),
                 )
+            elif stage == "embed":
+                cur.execute(
+                    """
+                    update files
+                    set
+                      embedding_status = %s,
+                      embedding_error = %s,
+                      processing_updated_at = %s,
+                      updated_at = %s
+                    where id = %s::uuid
+                    """,
+                    (status, error_message, now, now, file_id),
+                )
         conn.commit()
+
+    def replace_file_document(
+        self,
+        conn: psycopg.Connection,
+        *,
+        file_id: str,
+        content_text: str,
+        parser_name: str,
+        parser_version: str,
+        language: str | None,
+        metadata: dict[str, Any],
+        chunks: list[dict[str, Any]],
+    ) -> None:
+        now = datetime.now(UTC)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    'delete from file_documents where file_id = %s::uuid',
+                    (file_id,),
+                )
+                cur.execute(
+                    """
+                    insert into file_documents (
+                      file_id,
+                      content_text,
+                      parser_name,
+                      parser_version,
+                      language,
+                      metadata,
+                      created_at,
+                      updated_at
+                    )
+                    values (%s::uuid, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                    returning id
+                    """,
+                    (
+                        file_id,
+                        content_text,
+                        parser_name,
+                        parser_version,
+                        language,
+                        json.dumps(metadata, ensure_ascii=False),
+                        now,
+                        now,
+                    ),
+                )
+                document_id = str(cur.fetchone()["id"])
+                for idx, chunk in enumerate(chunks):
+                    cur.execute(
+                        """
+                        insert into file_chunks (
+                          file_id,
+                          document_id,
+                          chunk_index,
+                          content,
+                          page_no,
+                          slide_no,
+                          sheet_name,
+                          row_start,
+                          row_end,
+                          section_title,
+                          metadata,
+                          created_at
+                        )
+                        values (
+                          %s::uuid,
+                          %s::uuid,
+                          %s,
+                          %s,
+                          %s,
+                          %s,
+                          %s,
+                          %s,
+                          %s,
+                          %s,
+                          %s::jsonb,
+                          %s
+                        )
+                        """,
+                        (
+                            file_id,
+                            document_id,
+                            int(chunk.get("chunk_index", idx)),
+                            str(chunk.get("content") or ""),
+                            chunk.get("page_no"),
+                            chunk.get("slide_no"),
+                            chunk.get("sheet_name"),
+                            chunk.get("row_start"),
+                            chunk.get("row_end"),
+                            chunk.get("section_title"),
+                            json.dumps(chunk.get("metadata") or {}, ensure_ascii=False),
+                            now,
+                        ),
+                    )
+
+    def update_file_chunk_search_vectors(
+        self,
+        conn: psycopg.Connection,
+        *,
+        file_id: str,
+    ) -> int:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update file_chunks
+                set search_vector = to_tsvector('jiebacfg', coalesce(content, ''))
+                where file_id = %s::uuid
+                """,
+                (file_id,),
+            )
+            count = cur.rowcount
+        conn.commit()
+        return count
+
+    def list_file_chunks_for_embedding(
+        self,
+        conn: psycopg.Connection,
+        *,
+        file_id: str,
+    ) -> list[dict[str, Any]]:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select id, chunk_index, content
+                from file_chunks
+                where file_id = %s::uuid
+                  and content is not null
+                  and btrim(content) <> ''
+                order by chunk_index asc
+                """,
+                (file_id,),
+            )
+            return list(cur.fetchall())
+
+    def update_file_chunk_embeddings(
+        self,
+        conn: psycopg.Connection,
+        *,
+        file_id: str,
+        rows: list[dict[str, Any]],
+        embeddings: list[list[float]],
+        model: str,
+        dim: int,
+    ) -> int:
+        if len(rows) != len(embeddings):
+            raise RuntimeError("Embedding row count mismatch")
+        now = datetime.now(UTC)
+        with conn.cursor() as cur:
+            for row, vector in zip(rows, embeddings):
+                vector_literal = "[" + ",".join(str(float(v)) for v in vector) + "]"
+                cur.execute(
+                    """
+                    update file_chunks
+                    set embedding = %s::vector,
+                        embedding_model = %s,
+                        embedding_dim = %s
+                    where id = %s::uuid
+                    """,
+                    (vector_literal, model, dim, row["id"]),
+                )
+            cur.execute(
+                """
+                update files
+                set embedding_model = %s,
+                    embedding_dim = %s,
+                    processing_updated_at = %s,
+                    updated_at = %s
+                where id = %s::uuid
+                """,
+                (model, dim, now, now, file_id),
+            )
+        conn.commit()
+        return len(rows)
 
     def mark_retry(
         self,
@@ -291,4 +586,3 @@ class Repository:
                 ),
             )
         conn.commit()
-

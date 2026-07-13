@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 
+import PageShell from '@/components/common/page-shell'
 import SubpageHeader from '@/components/common/subpage-header'
 import { parseProjectStage } from '@/constants/project-stage'
 import { requireUser } from '@/core/auth'
@@ -40,7 +41,7 @@ export default async function WeeklyFilesPage({ searchParams }: PageProps) {
   ])
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageShell>
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <SubpageHeader title="我的文件" className="mb-0" />
         <Link
@@ -73,6 +74,6 @@ export default async function WeeklyFilesPage({ searchParams }: PageProps) {
           />
         </Suspense>
       </div>
-    </div>
+    </PageShell>
   )
 }

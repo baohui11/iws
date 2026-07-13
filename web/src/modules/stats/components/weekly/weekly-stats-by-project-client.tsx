@@ -44,7 +44,8 @@ export default function WeeklyStatsByProjectClient({
       s.departmentId,
       s.weekCode,
       s.personKeyword || null,
-      s.projectKeyword || null
+      s.projectKeyword || null,
+      s.projectStage || null
     )
     setLoading(false)
     if (!result.success) {
@@ -64,6 +65,7 @@ export default function WeeklyStatsByProjectClient({
         weekCode: initialWeekCode,
         personKeyword: '',
         projectKeyword: '',
+        projectStage: '',
       })
     }
   }, [initialDepartmentId, initialWeekCode, runQuery])
@@ -71,21 +73,19 @@ export default function WeeklyStatsByProjectClient({
   const csv = useMemo(() => {
     const headers = [
       '项目名称',
+      '项目阶段',
       '状态',
-      '无工作',
       '周报数',
-      '待审批',
       '合计天数',
     ]
     const body = rows.map((r) => [
       r.project_name ?? '—',
+      r.project_stage,
       r.project_status
         ? (PROJECT_STATUS_LABEL as Record<string, string>)[r.project_status] ??
           r.project_status
         : '—',
-      r.no_work_exemption ? '无工作' : '',
       String(r.report_count),
-      String(r.pending_count),
       String(r.total_work_days),
     ])
     return { headers, body }
@@ -134,10 +134,9 @@ export default function WeeklyStatsByProjectClient({
           >
             <TableHeader>
               <TableColumn>项目名称</TableColumn>
+              <TableColumn>阶段</TableColumn>
               <TableColumn>状态</TableColumn>
-              <TableColumn>无工作</TableColumn>
               <TableColumn>周报数</TableColumn>
-              <TableColumn>待审批</TableColumn>
               <TableColumn>合计天数</TableColumn>
             </TableHeader>
             <TableBody emptyContent="暂无数据">
@@ -146,6 +145,7 @@ export default function WeeklyStatsByProjectClient({
                   <TableCell className="min-w-[260px] max-w-[min(520px,55vw)] font-medium">
                     <span className="line-clamp-2">{r.project_name ?? '—'}</span>
                   </TableCell>
+                  <TableCell>{r.project_stage}</TableCell>
                   <TableCell>
                     {r.project_status
                       ? PROJECT_STATUS_LABEL[
@@ -153,15 +153,7 @@ export default function WeeklyStatsByProjectClient({
                         ] ?? r.project_status
                       : '—'}
                   </TableCell>
-                  <TableCell>
-                    {r.no_work_exemption ? (
-                      <Chip size="sm" variant="flat" color="warning">
-                        无工作
-                      </Chip>
-                    ) : null}
-                  </TableCell>
                   <TableCell className="tabular-nums">{r.report_count}</TableCell>
-                  <TableCell className="tabular-nums">{r.pending_count}</TableCell>
                   <TableCell className="tabular-nums">{r.total_work_days}</TableCell>
                 </TableRow>
               ))}

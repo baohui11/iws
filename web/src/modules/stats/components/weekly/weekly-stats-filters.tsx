@@ -17,6 +17,7 @@ export interface WeeklyStatsFiltersState {
   weekCode: string
   personKeyword: string
   projectKeyword: string
+  projectStage: string
 }
 
 export function WeeklyStatsFilters({
@@ -42,6 +43,7 @@ export function WeeklyStatsFilters({
   const [weekCode, setWeekCode] = useState(initialWeekCode)
   const [personKeyword, setPersonKeyword] = useState('')
   const [projectKeyword, setProjectKeyword] = useState('')
+  const [projectStage, setProjectStage] = useState('')
 
   const weekItems = useMemo(
     () =>
@@ -58,8 +60,9 @@ export function WeeklyStatsFilters({
       weekCode,
       personKeyword: personKeyword.trim(),
       projectKeyword: projectKeyword.trim(),
+      projectStage,
     })
-  }, [departmentId, weekCode, personKeyword, projectKeyword, onApply])
+  }, [departmentId, weekCode, personKeyword, projectKeyword, projectStage, onApply])
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-default-200/80 bg-default-50/50 p-3">
@@ -133,6 +136,24 @@ export function WeeklyStatsFilters({
             />
           </StatsLabelField>
         ) : null}
+
+        <StatsLabelField label="阶段" className="lg:min-w-[min(100%,12rem)]">
+          <Select
+            aria-label="项目阶段"
+            size="sm"
+            variant="bordered"
+            className="w-full min-w-[10rem] max-w-[12rem]"
+            selectedKeys={new Set([projectStage || 'all'])}
+            onSelectionChange={(keys) => {
+              const k = [...keys][0] as string | undefined
+              setProjectStage(!k || k === 'all' ? '' : k)
+            }}
+          >
+            <SelectItem key="all">全部阶段</SelectItem>
+            <SelectItem key="实施阶段">实施阶段</SelectItem>
+            <SelectItem key="销售阶段">销售阶段</SelectItem>
+          </Select>
+        </StatsLabelField>
 
         <div className="flex w-full justify-end lg:ml-auto lg:w-auto">
           <Button

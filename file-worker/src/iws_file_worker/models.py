@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-FileProcessStage = Literal["preview", "parse", "index"]
+FileProcessStage = Literal["preview", "parse", "index", "embed"]
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,7 @@ class FileRow:
     file_ext: str | None
     mime_type: str | None
     source_storage_key: str
+    preview_storage_key: str | None
 
 
 @dataclass(frozen=True)

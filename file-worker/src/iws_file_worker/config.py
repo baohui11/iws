@@ -34,6 +34,19 @@ class Settings:
     poll_interval_seconds: float
     visibility_timeout_seconds: int
     max_messages: int
+    paddleocr_token: str
+    paddleocr_job_url: str
+    paddleocr_model: str
+    paddleocr_poll_interval_seconds: int
+    paddleocr_max_wait_seconds: int
+    embedding_api_key: str
+    embedding_api_url: str
+    embedding_model: str
+    embedding_dim: int
+    embedding_batch_size: int
+    embedding_service_host: str
+    embedding_service_port: int
+    embedding_service_token: str
 
 
 def load_settings() -> Settings:
@@ -62,4 +75,25 @@ def load_settings() -> Settings:
             os.getenv("FILE_WORKER_VISIBILITY_TIMEOUT_SECONDS", "300")
         ),
         max_messages=int(os.getenv("FILE_WORKER_MAX_MESSAGES", "5")),
+        paddleocr_token=os.getenv("PADDLEOCR_TOKEN", "").strip(),
+        paddleocr_job_url=os.getenv(
+            "PADDLEOCR_JOB_URL",
+            "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+        ).strip(),
+        paddleocr_model=os.getenv("PADDLEOCR_MODEL", "PaddleOCR-VL-1.6").strip(),
+        paddleocr_poll_interval_seconds=int(
+            os.getenv("PADDLEOCR_POLL_INTERVAL_SECONDS", "5")
+        ),
+        paddleocr_max_wait_seconds=int(os.getenv("PADDLEOCR_MAX_WAIT_SECONDS", "1800")),
+        embedding_api_key=os.getenv("DASHSCOPE_API_KEY", "").strip(),
+        embedding_api_url=os.getenv(
+            "EMBEDDING_API_URL",
+            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
+        ).strip(),
+        embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-v4").strip(),
+        embedding_dim=int(os.getenv("EMBEDDING_DIM", "1536")),
+        embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "10")),
+        embedding_service_host=os.getenv("EMBEDDING_SERVICE_HOST", "0.0.0.0").strip(),
+        embedding_service_port=int(os.getenv("EMBEDDING_SERVICE_PORT", "8010")),
+        embedding_service_token=os.getenv("EMBEDDING_SERVICE_TOKEN", "").strip(),
     )

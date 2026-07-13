@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import './globals.css'
 import { Providers } from './providers'
-import LayoutNavbar from '@/components/navbar'
+import AppShell from '@/components/app-shell'
 import { getCurrentUser } from '@/core/auth'
 
 export const metadata: Metadata = {
@@ -14,15 +15,20 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser()
+  const cookieStore = await cookies()
+  const initialSidebarCollapsed =
+    cookieStore.get('iws-sidebar-collapsed')?.value === '1'
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
+      <body className="min-h-screen bg-default-50/40 font-sans text-foreground antialiased dark:bg-background">
         <Providers>
-          <div className="flex min-h-screen flex-col">
-            <LayoutNavbar initialUser={user} />
-            <main className="flex min-h-0 flex-1 flex-col">{children}</main>
-          </div>
+          <AppShell
+            initialUser={user}
+            initialSidebarCollapsed={initialSidebarCollapsed}
+          >
+            {children}
+          </AppShell>
         </Providers>
       </body>
     </html>

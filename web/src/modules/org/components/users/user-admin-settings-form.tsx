@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { Button, Chip, Input, Select, SelectItem, Switch, addToast } from '@heroui/react'
 import { useRouter } from 'next/navigation'
 import type { UserWithDepartment } from '@/modules/org/users/repo'
-import { updateUserAdminSettings } from '@/modules/org/users/actions'
+import {
+  sendUserInvites,
+  updateUserAdminSettings,
+} from '@/modules/org/users/actions'
 import {
   defaultSystemRole,
   SYSTEM_ROLE_LABEL,
@@ -19,6 +22,7 @@ export default function UserAdminSettingsForm({ user }: { user: UserWithDepartme
   const [tags, setTags] = useState(user.tags ?? '')
   const [isActive, setIsActive] = useState(user.is_active)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSendingInvite, setIsSendingInvite] = useState(false)
 
   const save = async () => {
     setIsSaving(true)
@@ -40,6 +44,36 @@ export default function UserAdminSettingsForm({ user }: { user: UserWithDepartme
       showErrorToast({ title: '保存失败', error })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const canSendInvite = isActive && !user.invite_sent_at && !!user.email?.trim()
+
+  const sendInvite = async () => {
+    setIsSendingInvite(true)
+    try {
+      const result = await sendUserInvites({ ids: [user.id] })
+      if (!result.success) {
+        showResultError(result, '发送失败')
+        return
+      }
+      addToast({
+        title:
+          result.data.sent_count > 0
+            ? '邀请邮件已发送'
+            : '没有发送邀请邮件',
+        description:
+          result.data.sent_count > 0
+            ? undefined
+            : '用户可能未生效、没有邮箱，或已发送过邀请',
+        color: result.data.sent_count > 0 ? 'success' : 'warning',
+        timeout: 2500,
+      })
+      router.refresh()
+    } catch (error) {
+      showErrorToast({ title: '发送失败', error })
+    } finally {
+      setIsSendingInvite(false)
     }
   }
 
@@ -96,6 +130,29 @@ export default function UserAdminSettingsForm({ user }: { user: UserWithDepartme
       <Switch isSelected={isActive} onValueChange={setIsActive}>
         {isActive ? '已生效' : '未生效'}
       </Switch>
+
+      <div className="rounded-xl border border-default-200 bg-default-50 p-4 dark:bg-default-100/20">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-foreground">邀请邮件</div>
+            <div className="mt-1 text-xs text-default-500">
+              {user.invite_sent_at
+                ? `已发送：${new Date(user.invite_sent_at).toLocaleString('zh-CN')}`
+                : '尚未发送邀请邮件'}
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="flat"
+            color="primary"
+            isLoading={isSendingInvite}
+            isDisabled={!canSendInvite || isSaving}
+            onPress={() => void sendInvite()}
+          >
+            发送邀请邮件
+          </Button>
+        </div>
+      </div>
 
       <div className="flex justify-end gap-3">
         <Button variant="flat" onPress={() => router.push('/admin/users')} isDisabled={isSaving}>
