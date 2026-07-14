@@ -35,7 +35,11 @@ function UserMenu({ initialUser }: UserMenuProps) {
         variant="flat"
         color="secondary"
         radius="full"
-        onPress={() => router.push('/login')}
+        onPress={async () => {
+          await logoutAction()
+          router.push('/login')
+          router.refresh()
+        }}
       >
         未登录
       </Button>

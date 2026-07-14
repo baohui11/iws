@@ -35,7 +35,10 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/src/core/db/migrations ./src/core/db/migrations
 COPY --from=builder /app/scripts/migrate-runtime.mjs ./scripts/migrate-runtime.mjs
+COPY --from=builder /app/scripts/seed-all.mjs ./scripts/seed-all.mjs
 COPY --from=builder /app/scripts/seed-admin.mjs ./scripts/seed-admin.mjs
+COPY --from=builder /app/scripts/seed-weeks.mjs ./scripts/seed-weeks.mjs
+COPY --from=builder /app/scripts/seed-data ./scripts/seed-data
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 

@@ -9,4 +9,8 @@ if [ "${SEED_ADMIN_ON_STARTUP:-true}" = "true" ]; then
   node scripts/seed-admin.mjs
 fi
 
+if [ "${SEED_WEEKS_ON_STARTUP:-true}" = "true" ]; then
+  node scripts/seed-weeks.mjs
+fi
+
 exec "$@"

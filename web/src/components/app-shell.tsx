@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@heroui/react'
 import AppSidebar from '@/components/app-sidebar'
 import LayoutNavbar from '@/components/navbar'
 import type { CurrentUser } from '@/core/auth'
+import { logoutAction } from '@/modules/auth/actions'
 
 const SIDEBAR_COLLAPSED_KEY = 'iws-sidebar-collapsed'
 const USER_UPDATED_EVENT = 'iws:user-updated'
@@ -43,18 +44,39 @@ function SidebarCollapseIcon({ collapsed }: { collapsed: boolean }) {
 
 export default function AppShell({
   initialUser,
+  initialSessionInvalid,
   initialSidebarCollapsed,
   children,
 }: {
   initialUser: CurrentUser | null
+  initialSessionInvalid: boolean
   initialSidebarCollapsed: boolean
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const router = useRouter()
   const [stableUser, setStableUser] = useState(() => initialUser)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => initialSidebarCollapsed
   )
+
+  useEffect(() => {
+    if (!initialSessionInvalid) return
+    if (pathname === '/login' || pathname === '/reset-password') return
+
+    let cancelled = false
+    async function clearInvalidSession() {
+      await logoutAction()
+      if (cancelled) return
+      router.replace('/login?reason=session_expired')
+      router.refresh()
+    }
+    void clearInvalidSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [initialSessionInvalid, pathname, router])
 
   useEffect(() => {
     const currentId = stableUser?.id ?? null

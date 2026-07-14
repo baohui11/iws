@@ -16,6 +16,7 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser()
   const cookieStore = await cookies()
+  const hasSessionCookie = Boolean(cookieStore.get('iws_session')?.value)
   const initialSidebarCollapsed =
     cookieStore.get('iws-sidebar-collapsed')?.value === '1'
 
@@ -25,6 +26,7 @@ export default async function RootLayout({
         <Providers>
           <AppShell
             initialUser={user}
+            initialSessionInvalid={hasSessionCookie && !user}
             initialSidebarCollapsed={initialSidebarCollapsed}
           >
             {children}
