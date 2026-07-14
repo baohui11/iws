@@ -84,6 +84,7 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       AUTH_SECRET: ${AUTH_SECRET:-change-me-to-a-strong-random-secret}
       FILE_UPLOAD_TOKEN_SECRET: ${FILE_UPLOAD_TOKEN_SECRET:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-}
       RUN_DB_MIGRATIONS: ${RUN_DB_MIGRATIONS:-true}
       SEED_ADMIN_ON_STARTUP: ${SEED_ADMIN_ON_STARTUP:-true}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@iws.local}

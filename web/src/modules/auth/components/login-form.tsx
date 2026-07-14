@@ -85,6 +85,10 @@ export function LoginForm() {
     } catch {
       setError('网络错误，请稍后重试')
       setIsLoading(false)
+    } finally {
+      window.setTimeout(() => {
+        setIsLoading(false)
+      }, 1200)
     }
   }
 
