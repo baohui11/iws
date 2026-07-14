@@ -12,10 +12,46 @@
 
 ## 启动
 
+服务器运行只依赖镜像，不在服务器上构建：
+
 ```powershell
 cd E:\app\iws\docker
 Copy-Item .env.example .env
-docker compose up -d --build
+docker compose up -d
+```
+
+## 本地构建镜像
+
+本地开发机有外网时，使用 build override 生成镜像：
+
+```powershell
+cd E:\app\iws\docker
+docker compose -f docker-compose.yml -f docker-compose.build.yml build
+```
+
+也可以边构建边启动：
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+导出需要传到服务器的镜像：
+
+```powershell
+docker save -o iws-images.tar `
+  iws-postgres:latest `
+  iws-web:latest `
+  iws-file-worker:latest `
+  minio/minio:RELEASE.2025-04-22T22-12-26Z `
+  gotenberg/gotenberg:8
+```
+
+服务器导入：
+
+```powershell
+docker load -i iws-images.tar
+cd /path/to/iws/docker
+docker compose up -d
 ```
 
 查看状态：
@@ -89,7 +125,7 @@ OA_SYNC_SCHEDULE_CRON=0 4,13 * * *
 ```powershell
 cd E:\app\iws\docker
 docker compose down -v
-docker compose up -d --build
+docker compose up -d
 ```
 
 ## 生产必改配置

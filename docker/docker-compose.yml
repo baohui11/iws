@@ -1,9 +1,9 @@
-# IWS production-like local deployment.
+# IWS production deployment.
 #
 # Usage:
 #   cd docker
 #   cp .env.example .env
-#   docker compose up -d --build
+#   docker compose up -d
 #
 # App containers:
 #   iws-web         Next.js web app; runs DB migrations on startup by default.
@@ -11,8 +11,7 @@
 
 services:
   postgres:
-    build:
-      context: ./postgres
+    image: ${POSTGRES_IMAGE:-iws-postgres:latest}
     container_name: iws-postgres
     restart: unless-stopped
     command:
@@ -41,7 +40,7 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}
     container_name: iws-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -62,7 +61,7 @@ services:
       retries: 10
 
   gotenberg:
-    image: gotenberg/gotenberg:8
+    image: ${GOTENBERG_IMAGE:-gotenberg/gotenberg:8}
     container_name: iws-gotenberg
     restart: unless-stopped
     environment:
@@ -76,9 +75,7 @@ services:
       retries: 5
 
   web:
-    build:
-      context: ../web
-      target: web
+    image: ${WEB_IMAGE:-iws-web:latest}
     container_name: iws-web
     restart: unless-stopped
     environment:
@@ -130,8 +127,7 @@ services:
         condition: service_healthy
 
   file-worker:
-    build:
-      context: ../file-worker
+    image: ${FILE_WORKER_IMAGE:-iws-file-worker:latest}
     container_name: iws-file-worker
     restart: unless-stopped
     environment:

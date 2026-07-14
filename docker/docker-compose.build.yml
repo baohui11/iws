@@ -1,0 +1,22 @@
+# Build override for local image creation.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml build
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  postgres:
+    build:
+      context: ./postgres
+    image: ${POSTGRES_IMAGE:-iws-postgres:latest}
+
+  web:
+    build:
+      context: ../web
+      target: web
+    image: ${WEB_IMAGE:-iws-web:latest}
+
+  file-worker:
+    build:
+      context: ../file-worker
+    image: ${FILE_WORKER_IMAGE:-iws-file-worker:latest}
