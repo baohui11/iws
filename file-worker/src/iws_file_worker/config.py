@@ -34,6 +34,10 @@ class Settings:
     poll_interval_seconds: float
     visibility_timeout_seconds: int
     max_messages: int
+    preview_concurrency: int
+    parse_concurrency: int
+    index_concurrency: int
+    embed_concurrency: int
     paddleocr_token: str
     paddleocr_job_url: str
     paddleocr_model: str
@@ -56,6 +60,17 @@ def load_settings() -> Settings:
     if not database_url:
         raise RuntimeError("DATABASE_URL is required")
 
+    preview_concurrency = int(os.getenv("FILE_WORKER_PREVIEW_CONCURRENCY", "3"))
+    parse_concurrency = int(os.getenv("FILE_WORKER_PARSE_CONCURRENCY", "12"))
+    index_concurrency = int(os.getenv("FILE_WORKER_INDEX_CONCURRENCY", "6"))
+    embed_concurrency = int(os.getenv("FILE_WORKER_EMBED_CONCURRENCY", "6"))
+    default_max_messages = str(
+        preview_concurrency
+        + parse_concurrency
+        + index_concurrency
+        + embed_concurrency
+    )
+
     return Settings(
         database_url=database_url,
         s3_endpoint=os.getenv("S3_ENDPOINT", "http://localhost:9000").strip(),
@@ -74,7 +89,11 @@ def load_settings() -> Settings:
         visibility_timeout_seconds=int(
             os.getenv("FILE_WORKER_VISIBILITY_TIMEOUT_SECONDS", "300")
         ),
-        max_messages=int(os.getenv("FILE_WORKER_MAX_MESSAGES", "5")),
+        max_messages=int(os.getenv("FILE_WORKER_MAX_MESSAGES", default_max_messages)),
+        preview_concurrency=max(1, preview_concurrency),
+        parse_concurrency=max(1, parse_concurrency),
+        index_concurrency=max(1, index_concurrency),
+        embed_concurrency=max(1, embed_concurrency),
         paddleocr_token=os.getenv("PADDLEOCR_TOKEN", "").strip(),
         paddleocr_job_url=os.getenv(
             "PADDLEOCR_JOB_URL",

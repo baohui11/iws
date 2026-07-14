@@ -99,6 +99,20 @@ The worker also starts an internal HTTP endpoint:
 The web app can call this service through `EMBEDDING_SERVICE_URL` to generate
 query vectors without knowing model-specific details.
 
+Worker concurrency:
+
+```env
+FILE_WORKER_MAX_MESSAGES=27
+FILE_WORKER_PREVIEW_CONCURRENCY=3
+FILE_WORKER_PARSE_CONCURRENCY=12
+FILE_WORKER_INDEX_CONCURRENCY=6
+FILE_WORKER_EMBED_CONCURRENCY=6
+```
+
+The worker reads up to `FILE_WORKER_MAX_MESSAGES` messages per polling round and
+dispatches them to stage-specific thread pools. Each task uses its own database
+connection, so psycopg connections are not shared across threads.
+
 Local run:
 
 ```powershell
