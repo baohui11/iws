@@ -23,6 +23,10 @@ const CONFIDENTIAL_DEPARTMENT_CONTENT_ROLES = new Set<string>([
   'dept_ld',
 ])
 
+function uuidArraySql(ids: string[]): SQL {
+  return sql`array[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`
+}
+
 export async function getFileDepartmentScopeIds(
   user: Pick<CurrentUser, 'id' | 'role' | 'departmentId'>
 ): Promise<string[] | null> {
@@ -124,7 +128,7 @@ export function buildVisibleFileSql(input: {
   return sql`(
     ${f}."uploader_id" = ${input.userId}
     or ${memberExists}
-    or ${f}."department_id" = any(${input.departmentScopeIds}::uuid[])
+    or ${f}."department_id" = any(${uuidArraySql(input.departmentScopeIds)})
   )`
 }
 
@@ -154,7 +158,7 @@ export function buildCanAccessContentSql(input: {
     input.departmentScopeIds == null
       ? sql`${f}."department_id" is not null`
       : input.departmentScopeIds.length > 0
-        ? sql`${f}."department_id" = any(${input.departmentScopeIds}::uuid[])`
+        ? sql`${f}."department_id" = any(${uuidArraySql(input.departmentScopeIds)})`
         : sql`false`
 
   return sql`(

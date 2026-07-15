@@ -37,6 +37,8 @@ import {
 } from 'react'
 
 const PAGE_SIZE = 10
+const SEARCH_CACHE_PREFIX = 'iws:file-search:'
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
 
 const FILE_TYPE_LABEL: Record<string, string> = {
   sales_file: '销售资料',
@@ -110,6 +112,99 @@ export type FileSearchInitial = {
   departmentId: string
   fileType: string
   fileExt: string
+  page: number
+}
+
+type SearchCacheEntry = {
+  savedAt: number
+  page: number
+  result: DocSearchResponse
+}
+
+function buildSearchPath(input: {
+  query: string
+  mode: DocSearchMode
+  projectName: string
+  departmentId: string
+  fileType: string
+  fileExt: string
+  page: number
+}): string {
+  const p = new URLSearchParams()
+  if (input.query.trim()) p.set('q', input.query.trim())
+  p.set('mode', input.mode)
+  if (input.projectName.trim()) p.set('project_name', input.projectName.trim())
+  if (input.departmentId.trim()) p.set('department_id', input.departmentId.trim())
+  if (input.fileType.trim()) p.set('file_type', input.fileType.trim())
+  if (input.fileExt.trim()) p.set('file_ext', input.fileExt.trim())
+  if (input.page > 1) p.set('page', String(input.page))
+  const qs = p.toString()
+  return qs ? `/files/search?${qs}` : '/files/search'
+}
+
+function cacheKey(path: string): string {
+  return `${SEARCH_CACHE_PREFIX}${path}`
+}
+
+function legacySearchPath(path: string): string | null {
+  const [pathname, queryString = ''] = path.split('?')
+  if (pathname !== '/files/search' || !queryString) return null
+
+  const p = new URLSearchParams(queryString)
+  if (p.get('mode') !== 'hybrid') return null
+  p.delete('mode')
+  const qs = p.toString()
+  return qs ? `${pathname}?${qs}` : pathname
+}
+
+function currentBrowserPath(): string | null {
+  if (typeof window === 'undefined') return null
+  return `${window.location.pathname}${window.location.search}`
+}
+
+function readSearchCache(path: string): SearchCacheEntry | null {
+  const paths = [path, legacySearchPath(path), currentBrowserPath()].filter(
+    (value): value is string => Boolean(value)
+  )
+
+  try {
+    for (const candidatePath of paths) {
+      const raw = window.sessionStorage.getItem(cacheKey(candidatePath))
+      if (!raw) continue
+      const value = JSON.parse(raw) as Partial<SearchCacheEntry>
+      if (
+        typeof value.savedAt !== 'number' ||
+        typeof value.page !== 'number' ||
+        !value.result ||
+        Date.now() - value.savedAt > SEARCH_CACHE_TTL_MS
+      ) {
+        window.sessionStorage.removeItem(cacheKey(candidatePath))
+        continue
+      }
+      return value as SearchCacheEntry
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function writeSearchCache(path: string, page: number, result: DocSearchResponse) {
+  try {
+    const entry = JSON.stringify({
+      savedAt: Date.now(),
+      page,
+      result,
+    } satisfies SearchCacheEntry)
+    const paths = [path, currentBrowserPath()].filter(
+      (value): value is string => Boolean(value)
+    )
+    for (const candidatePath of new Set(paths)) {
+      window.sessionStorage.setItem(cacheKey(candidatePath), entry)
+    }
+  } catch {
+    // Storage can be disabled or full; search remains fully functional.
+  }
 }
 
 function HighlightText({ html }: { html: string }) {
@@ -251,18 +346,31 @@ export default function FileSearchPageClient({
     return f
   }, [projectName, departmentId, fileType, fileExt])
 
+  const currentSearchPath = useMemo(
+    () =>
+      buildSearchPath({
+        query,
+        mode,
+        projectName,
+        departmentId,
+        fileType,
+        fileExt,
+        page,
+      }),
+    [departmentId, fileExt, fileType, mode, page, projectName, query]
+  )
+
   const syncUrl = useCallback(
     (nextPage?: number) => {
-      const p = new URLSearchParams()
-      if (query.trim()) p.set('q', query.trim())
-      if (mode !== 'hybrid') p.set('mode', mode)
-      if (projectName.trim()) p.set('project_name', projectName.trim())
-      if (departmentId.trim()) p.set('department_id', departmentId.trim())
-      if (fileType.trim()) p.set('file_type', fileType.trim())
-      if (fileExt.trim()) p.set('file_ext', fileExt.trim())
-      if (nextPage && nextPage > 1) p.set('page', String(nextPage))
-      const qs = p.toString()
-      router.replace(qs ? `/files/search?${qs}` : '/files/search', {
+      router.replace(buildSearchPath({
+        query,
+        mode,
+        projectName,
+        departmentId,
+        fileType,
+        fileExt,
+        page: nextPage ?? 1,
+      }), {
         scroll: false,
       })
     },
@@ -294,11 +402,24 @@ export default function FileSearchPageClient({
           return
         }
 
+        writeSearchCache(
+          buildSearchPath({
+            query,
+            mode,
+            projectName,
+            departmentId,
+            fileType,
+            fileExt,
+            page: nextPage,
+          }),
+          nextPage,
+          res.data
+        )
         setResult(res.data)
         setPage(nextPage)
       })
     },
-    [filtersPayload, mode, query]
+    [departmentId, fileExt, fileType, filtersPayload, mode, projectName, query]
   )
 
   const submitSearch = useCallback(() => {
@@ -347,7 +468,23 @@ export default function FileSearchPageClient({
   }, [initialFilters])
 
   useEffect(() => {
-    if (initialFilters.q.trim()) runSearch(1)
+    if (!initialFilters.q.trim()) return
+    const path = buildSearchPath({
+      query: initialFilters.q,
+      mode: initialFilters.mode,
+      projectName: initialFilters.projectName,
+      departmentId: initialFilters.departmentId,
+      fileType: initialFilters.fileType,
+      fileExt: initialFilters.fileExt,
+      page: initialFilters.page,
+    })
+    const cached = readSearchCache(path)
+    if (cached) {
+      setResult(cached.result)
+      setPage(cached.page)
+      return
+    }
+    runSearch(initialFilters.page)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -583,7 +720,10 @@ export default function FileSearchPageClient({
                           <Link
                             aria-label="预览文件"
                             className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-primary transition hover:bg-primary/10"
-                            href={`/files/${hit.id}/preview`}
+                            href={`/files/${hit.id}/preview?returnTo=${encodeURIComponent(currentSearchPath)}`}
+                            onClick={() => {
+                              if (result) writeSearchCache(currentSearchPath, page, result)
+                            }}
                           >
                             <Icon icon="lucide:eye" className="size-4" />
                           </Link>

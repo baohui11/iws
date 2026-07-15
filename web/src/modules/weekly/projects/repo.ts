@@ -611,13 +611,13 @@ export async function canAccessWeeklyProject(
   const proj = projRows[0]
   if (!proj?.departmentId) return false
 
-  if (
-    (ctx.role === 'dept_ld' || ctx.role === 'dept_admin') &&
+  const scopeDeptIds = await getDeptRoleScopeIds(
+    ctx.userId,
+    ctx.role,
     ctx.userDepartmentId
-  ) {
-    const scope = await getDepartmentIdsForListFilter(ctx.userDepartmentId)
-    if (scope.includes(proj.departmentId)) return true
-  }
+  )
+  if (scopeDeptIds === null) return true
+  if (scopeDeptIds.includes(proj.departmentId)) return true
 
   return false
 }

@@ -25,6 +25,11 @@ function parseMode(value: string): DocSearchMode {
   return 'hybrid'
 }
 
+function parsePage(value: string): number {
+  const page = Number(value)
+  return Number.isSafeInteger(page) && page > 0 ? page : 1
+}
+
 export default async function FileSearchPage({ searchParams }: PageProps) {
   const sp = await searchParams
   const { departmentOptions } = await getFileSearchPageData()
@@ -36,6 +41,7 @@ export default async function FileSearchPage({ searchParams }: PageProps) {
     departmentId: firstParam(sp, 'department_id'),
     fileType: firstParam(sp, 'file_type'),
     fileExt: firstParam(sp, 'file_ext'),
+    page: parsePage(firstParam(sp, 'page')),
   }
 
   return (

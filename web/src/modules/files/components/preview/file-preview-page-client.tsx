@@ -442,7 +442,13 @@ function FileInfoView({
   )
 }
 
-export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
+export default function FilePreviewPageClient({
+  fileId,
+  returnTo,
+}: {
+  fileId: string
+  returnTo?: string
+}) {
   const [data, setData] = useState<FilePreviewLoadResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -593,7 +599,11 @@ export default function FilePreviewPageClient({ fileId }: { fileId: string }) {
       className={`flex ${PREVIEW_PAGE_HEIGHT_CLASS} flex-col overflow-hidden bg-default-50`}
     >
       <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-default-200 bg-background/95 px-2 backdrop-blur-md md:px-4">
-        <SubpageBackButton variant="light" className="shrink-0 px-2" />
+        <SubpageBackButton
+          variant="light"
+          className="shrink-0 px-2"
+          href={returnTo}
+        />
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">

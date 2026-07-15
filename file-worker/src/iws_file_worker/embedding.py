@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import BoundedSemaphore, Thread
 from typing import Any
 
 import requests
@@ -12,6 +14,11 @@ import requests
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+MAX_EMBED_REQUEST_BYTES = max(1_024, int(os.getenv("EMBEDDING_SERVICE_MAX_REQUEST_BYTES", "65536")))
+MAX_EMBED_TEXTS = max(1, int(os.getenv("EMBEDDING_SERVICE_MAX_TEXTS", "8")))
+MIN_REQUEST_INTERVAL_SECONDS = max(0.0, float(os.getenv("EMBEDDING_SERVICE_MIN_INTERVAL_SECONDS", "0.05")))
+MAX_EMBED_REQUEST_CONCURRENCY = max(1, int(os.getenv("EMBEDDING_SERVICE_MAX_CONCURRENCY", "4")))
+embed_request_slots = BoundedSemaphore(MAX_EMBED_REQUEST_CONCURRENCY)
 
 
 @dataclass(frozen=True)
@@ -88,6 +95,9 @@ class EmbeddingClient:
 
 
 def start_embedding_http_server(settings: Settings, client: EmbeddingClient) -> ThreadingHTTPServer:
+    if os.getenv("IWS_REQUIRE_EMBEDDING_SERVICE_TOKEN", "true").strip().lower() in {"1", "true", "yes", "on"} and not settings.embedding_service_token:
+        raise RuntimeError("EMBEDDING_SERVICE_TOKEN is required when the embedding HTTP service is enabled")
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "IwsEmbeddingService/0.1"
 
@@ -119,17 +129,34 @@ def start_embedding_http_server(settings: Settings, client: EmbeddingClient) -> 
                     return
             try:
                 length = int(self.headers.get("Content-Length") or "0")
+                if length <= 0 or length > MAX_EMBED_REQUEST_BYTES:
+                    self._send_json(413, {"error": "request_too_large"})
+                    return
                 raw = self.rfile.read(length)
                 payload = json.loads(raw.decode("utf-8")) if raw else {}
                 texts = payload.get("texts")
-                if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+                if (
+                    not isinstance(texts, list)
+                    or len(texts) > MAX_EMBED_TEXTS
+                    or not all(isinstance(t, str) for t in texts)
+                ):
                     self._send_json(400, {"error": "texts must be string[]"})
                     return
                 text_type = payload.get("text_type") or "query"
                 if text_type not in {"query", "document"}:
                     self._send_json(400, {"error": "text_type must be query or document"})
                     return
-                result = client.embed(texts, text_type=text_type)
+                if not embed_request_slots.acquire(blocking=False):
+                    self._send_json(429, {"error": "busy"})
+                    return
+                try:
+                    # This endpoint is only for the web service.  A small floor
+                    # prevents a compromised caller from spending the API budget.
+                    if MIN_REQUEST_INTERVAL_SECONDS:
+                        time.sleep(MIN_REQUEST_INTERVAL_SECONDS)
+                    result = client.embed(texts, text_type=text_type)
+                finally:
+                    embed_request_slots.release()
                 self._send_json(
                     200,
                     {

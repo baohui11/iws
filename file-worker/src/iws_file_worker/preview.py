@@ -154,7 +154,7 @@ def convert_office_to_pdf(
     response = requests.post(
         url,
         files={"files": (file_name, data)},
-        timeout=120,
+        timeout=settings.gotenberg_convert_timeout_seconds,
     )
     response.raise_for_status()
     return response.content

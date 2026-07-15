@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,13 +13,15 @@ from docx import Document
 from docx.document import Document as DocxDocument
 from docx.table import Table
 from docx.text.paragraph import Paragraph
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
 from .config import Settings
 from .models import FileRow
-from .paddleocr import PaddleOcrClient
+from .paddleocr import OcrPage, PaddleOcrClient
 from .preview import convert_office_to_pdf, decode_text, normalize_ext
 from .storage import ObjectStorage
+
+LOGGER = logging.getLogger(__name__)
 
 TEXT_EXT = {"txt", "log"}
 MARKDOWN_EXT = {"md", "markdown"}
@@ -172,6 +175,24 @@ def pdf_page_texts(reader: PdfReader) -> list[str]:
     for page in reader.pages:
         texts.append((page.extract_text() or "").strip())
     return texts
+
+
+def split_pdf_for_ocr(data: bytes, max_pages: int) -> list[tuple[int, bytes]]:
+    reader = PdfReader(io.BytesIO(data))
+    page_count = len(reader.pages)
+    if page_count <= max_pages:
+        return [(1, data)]
+
+    batches: list[tuple[int, bytes]] = []
+    for start_idx in range(0, page_count, max_pages):
+        end_idx = min(start_idx + max_pages, page_count)
+        writer = PdfWriter()
+        for page_idx in range(start_idx, end_idx):
+            writer.add_page(reader.pages[page_idx])
+        buf = io.BytesIO()
+        writer.write(buf)
+        batches.append((start_idx + 1, buf.getvalue()))
+    return batches
 
 
 def page_is_landscape(page: Any) -> bool:
@@ -554,7 +575,26 @@ class ParseProcessor:
         converted_from: str | None = None,
         profile_metadata: dict[str, Any] | None = None,
     ) -> ParseResult:
-        pages = self.ocr.parse(data, "pdf")
+        pdf_batches = split_pdf_for_ocr(
+            data, self.settings.paddleocr_max_pdf_pages_per_job
+        )
+        pages: list[OcrPage] = []
+        if len(pdf_batches) > 1:
+            LOGGER.info(
+                "splitting pdf for PaddleOCR batches=%s max_pages_per_job=%s",
+                len(pdf_batches),
+                self.settings.paddleocr_max_pdf_pages_per_job,
+            )
+        for start_page, batch_data in pdf_batches:
+            batch_pages = self.ocr.parse(batch_data, "pdf")
+            pages.extend(
+                OcrPage(
+                    page_no=start_page + page.page_no - 1,
+                    text=page.text,
+                    raw=page.raw,
+                )
+                for page in batch_pages
+            )
         base_metadata = profile_metadata or {}
         chunks: list[ParsedChunk] = []
         for page in pages:

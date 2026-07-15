@@ -17,6 +17,10 @@ import type {
 const FULLTEXT_CONFIG = 'jiebacfg'
 const QUERY_CONFIG = 'jiebaqry'
 const MAX_SNIPPETS_PER_FILE = 3
+// Candidate recall is deliberately bounded.  Ranking every visible file makes
+// both the GIN and pgvector indexes ineffective as the corpus grows.
+const CANDIDATE_POOL_SIZE = 300
+const RRF_K = 60
 
 const FILTER_KEYS = new Set<DocSearchFilterKey>([
   'department_id',
@@ -230,7 +234,9 @@ export async function searchDocuments(input: {
   const wantsKeyword = mode === 'hybrid' || mode === 'keyword'
   const wantsVector = mode === 'hybrid' || mode === 'semantic'
   const wantsMetadata = mode === 'hybrid' || mode === 'metadata'
-  const queryEmbedding = hasQuery && wantsVector ? await embedQueryText(q) : null
+  const startedAt = performance.now()
+  const embedding = hasQuery && wantsVector ? await embedQueryText(q) : null
+  const queryEmbedding = embedding?.vector ?? null
   const hasVectorQuery = Array.isArray(queryEmbedding) && queryEmbedding.length > 0
   const queryVectorLiteral = hasVectorQuery
     ? `[${queryEmbedding.map((v) => Number(v)).join(',')}]`
@@ -288,15 +294,72 @@ export async function searchDocuments(input: {
       ) access
       where ${whereSql}
     ),
+    keyword_pool as (
+      select
+        fc."file_id", fc."content", fc."page_no", fc."slide_no", fc."sheet_name",
+        fc."row_start", fc."row_end", fc."chunk_index",
+        ts_headline(
+          ${sql.raw(`'${FULLTEXT_CONFIG}'`)}, fc."content", ${tsQuery},
+          'StartSel=<em>, StopSel=</em>, MaxWords=36, MinWords=12, ShortWord=2, HighlightAll=false'
+        ) as "formatted",
+        greatest(
+          coalesce(ts_rank_cd(fc."search_vector", ${tsQuery}), 0),
+          case when ${hasQuery} = true and fc."content" ilike ${like} then 0.2 else 0 end
+        ) as "rank_score",
+        1.0 / (${RRF_K} + row_number() over (
+          order by greatest(
+            coalesce(ts_rank_cd(fc."search_vector", ${tsQuery}), 0),
+            case when ${hasQuery} = true and fc."content" ilike ${like} then 0.2 else 0 end
+          ) desc, fc."chunk_index" asc
+        )) as "rrf_score"
+      from "file_chunks" fc
+      where ${hasQuery} = true and ${wantsKeyword} = true
+        and (fc."search_vector" @@ ${tsQuery} or fc."content" ilike ${like})
+      order by "rank_score" desc, fc."chunk_index" asc
+      limit ${CANDIDATE_POOL_SIZE}
+    ),
+    vector_pool as (
+      select
+        fc."file_id", fc."content", fc."page_no", fc."slide_no", fc."sheet_name",
+        fc."row_start", fc."row_end", fc."chunk_index",
+        1 - (fc."embedding" <=> ${queryVectorLiteral}::vector) as "score",
+        1.0 / (${RRF_K} + row_number() over (
+          order by fc."embedding" <=> ${queryVectorLiteral}::vector asc
+        )) as "rrf_score"
+      from "file_chunks" fc
+      where ${hasVectorQuery} = true and ${wantsVector} = true and fc."embedding" is not null
+      order by fc."embedding" <=> ${queryVectorLiteral}::vector asc
+      limit ${CANDIDATE_POOL_SIZE}
+    ),
+    metadata_pool as (
+      select vf."id"
+      from visible_files vf
+      where ${hasQuery} = false
+        or (${wantsMetadata} = true and vf."metadata_score" > 0)
+      order by vf."metadata_score" desc, vf."created_at" desc
+      limit ${CANDIDATE_POOL_SIZE}
+    ),
+    candidate_file_ids as (
+      -- Metadata is intentionally limited to matching rows.  For a blank
+      -- query this preserves the browse view, otherwise chunk recall drives
+      -- the query and avoids evaluating every visible file.
+      select "file_id" as "id" from keyword_pool
+      union
+      select "file_id" as "id" from vector_pool
+      union
+      select "id" from metadata_pool
+    ),
     ranked_files as (
       select
         vf.*,
         coalesce(cm."keyword_score", 0) as "keyword_score",
         vm."vector_score",
         (
-          vf."metadata_score"
-          + case when ${wantsKeyword} = true then coalesce(cm."keyword_score", 0) * 3.0 else 0 end
-          + case when ${wantsVector} = true then coalesce(vm."vector_score", 0) * 2.0 else 0 end
+          -- RRF makes keyword and cosine score scales comparable.  Metadata is
+          -- a small deterministic tie-breaker rather than a dominant signal.
+          (vf."metadata_score" / 100.0)
+          + coalesce(cm."rrf_score", 0)
+          + coalesce(vm."rrf_score", 0)
         )::double precision as "final_score",
         coalesce(cm."snippets", vm."snippets") as "snippets",
         coalesce(cm."best_content", vm."best_content") as "best_content",
@@ -308,10 +371,12 @@ export async function searchDocuments(input: {
           when vm."vector_score" is not null then 'vector'
           else 'metadata'
         end as "matched_by"
-      from visible_files vf
+      from candidate_file_ids c
+      join visible_files vf on vf."id" = c."id"
       left join lateral (
         select
           max(m."rank_score") as "keyword_score",
+          max(m."rrf_score") as "rrf_score",
           (array_agg(m."content" order by m."rank_score" desc, m."chunk_index" asc))[1] as "best_content",
           jsonb_agg(
             jsonb_build_object(
@@ -328,39 +393,16 @@ export async function searchDocuments(input: {
             order by m."rank_score" desc, m."chunk_index" asc
           ) as "snippets"
         from (
-          select
-            fc."content",
-            ts_headline(
-              ${sql.raw(`'${FULLTEXT_CONFIG}'`)},
-              fc."content",
-              ${tsQuery},
-              'StartSel=<em>, StopSel=</em>, MaxWords=36, MinWords=12, ShortWord=2, HighlightAll=false'
-            ) as "formatted",
-            fc."page_no",
-            fc."slide_no",
-            fc."sheet_name",
-            fc."row_start",
-            fc."row_end",
-            fc."chunk_index",
-            greatest(
-              coalesce(ts_rank_cd(fc."search_vector", ${tsQuery}), 0),
-              case when ${hasQuery} = true and fc."content" ilike ${like} then 0.2 else 0 end
-            ) as "rank_score"
-          from "file_chunks" fc
-          where fc."file_id" = vf."id"
-            and ${hasQuery} = true
-            and ${wantsKeyword} = true
-            and (
-              fc."search_vector" @@ ${tsQuery}
-              or fc."content" ilike ${like}
-            )
-          order by "rank_score" desc, fc."chunk_index" asc
+          select * from keyword_pool
+          where "file_id" = vf."id"
+          order by "rank_score" desc, "chunk_index" asc
           limit ${MAX_SNIPPETS_PER_FILE}
         ) m
       ) cm on true
       left join lateral (
         select
           max(v."score") as "vector_score",
+          max(v."rrf_score") as "rrf_score",
           (array_agg(v."content" order by v."score" desc, v."chunk_index" asc))[1] as "best_content",
           jsonb_agg(
             jsonb_build_object(
@@ -377,21 +419,9 @@ export async function searchDocuments(input: {
             order by v."score" desc, v."chunk_index" asc
           ) as "snippets"
         from (
-          select
-            fc."content",
-            fc."page_no",
-            fc."slide_no",
-            fc."sheet_name",
-            fc."row_start",
-            fc."row_end",
-            fc."chunk_index",
-            1 - (fc."embedding" <=> ${queryVectorLiteral}::vector) as "score"
-          from "file_chunks" fc
-          where fc."file_id" = vf."id"
-            and ${hasVectorQuery} = true
-            and ${wantsVector} = true
-            and fc."embedding" is not null
-          order by fc."embedding" <=> ${queryVectorLiteral}::vector asc
+          select * from vector_pool
+          where "file_id" = vf."id"
+          order by "score" desc, "chunk_index" asc
           limit 3
         ) v
       ) vm on true
@@ -437,6 +467,17 @@ export async function searchDocuments(input: {
     input.max_content_chars != null && Number.isFinite(input.max_content_chars)
       ? Math.max(0, Math.floor(Number(input.max_content_chars)))
       : 600
+
+  const processingTimeMs = Math.round(performance.now() - startedAt)
+  if (processingTimeMs > 1_000 || embedding?.vector === null) {
+    console.info('[file-search]', {
+      processingTimeMs,
+      mode,
+      hasQuery,
+      resultCount: rows.length,
+      embedding: embedding?.vector ? (embedding.cacheHit ? 'cache' : 'ok') : (embedding?.reason ?? 'not_requested'),
+    })
+  }
 
   return {
     hits: rows.map((row) => {
@@ -494,7 +535,7 @@ export async function searchDocuments(input: {
     limit,
     offset,
     estimatedTotalHits: rows[0]?.total_count ?? 0,
-    processingTimeMs: null,
+    processingTimeMs,
     mode,
   }
 }

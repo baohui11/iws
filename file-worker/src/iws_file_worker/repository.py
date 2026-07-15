@@ -67,6 +67,52 @@ class Repository:
         value = row.get("msg_id") or row.get("send") or next(iter(row.values()))
         return str(value)
 
+    def reconcile_pending_tasks(self, conn: psycopg.Connection, *, stale_after_seconds: int = 300) -> int:
+        """Re-publish stale pending tasks whose original pgmq delivery was lost.
+
+        The task row is authoritative; duplicate messages are safe because
+        ``claim_message`` locks and validates the task before processing it.
+        """
+        stale_before = datetime.now(UTC) - timedelta(seconds=stale_after_seconds)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select id, file_id, stage
+                from file_process_tasks
+                where status = 'pending'
+                  and run_after <= now()
+                  and updated_at <= %s
+                order by priority desc, created_at asc
+                limit 100
+                for update skip locked
+                """,
+                (stale_before,),
+            )
+            tasks = cur.fetchall()
+            for task in tasks:
+                payload = {
+                    "version": 1,
+                    "taskId": str(task["id"]),
+                    "fileId": str(task["file_id"]),
+                    "stage": task["stage"],
+                }
+                cur.execute(
+                    "select * from pgmq.send(%s::text, %s::jsonb, %s::integer)",
+                    (QUEUE_NAME, json.dumps(payload), 0),
+                )
+                sent = cur.fetchone()
+                msg_id = sent.get("msg_id") if sent else None
+                cur.execute(
+                    """
+                    update file_process_tasks
+                    set pgmq_message_id = %s::bigint, updated_at = now()
+                    where id = %s::uuid
+                    """,
+                    (msg_id, task["id"]),
+                )
+        conn.commit()
+        return len(tasks)
+
     def enqueue_stage(
         self,
         conn: psycopg.Connection,

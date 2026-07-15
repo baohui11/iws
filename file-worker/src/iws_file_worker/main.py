@@ -16,6 +16,7 @@ from .storage import ObjectStorage
 from .preview import PreviewProcessor, PreviewResult
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s - %(message)s"
+RECONCILE_INTERVAL_SECONDS = 60
 
 
 class StopSignal:
@@ -246,7 +247,14 @@ def main() -> None:
         settings.embed_concurrency,
     )
     try:
+        last_reconcile = 0.0
         while not stop_signal.stop:
+            if time.monotonic() - last_reconcile >= RECONCILE_INTERVAL_SECONDS:
+                with repo.connect() as conn:
+                    recovered = repo.reconcile_pending_tasks(conn)
+                if recovered:
+                    logging.warning("re-published stale file processing tasks count=%s", recovered)
+                last_reconcile = time.monotonic()
             processed = run_once(repo, processor, embedding_client, executors)
             if not processed:
                 time.sleep(settings.poll_interval_seconds)

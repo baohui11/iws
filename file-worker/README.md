@@ -77,7 +77,11 @@ PADDLEOCR_JOB_URL=https://paddleocr.aistudio-app.com/api/v2/ocr/jobs
 PADDLEOCR_MODEL=PaddleOCR-VL-1.6
 PADDLEOCR_POLL_INTERVAL_SECONDS=5
 PADDLEOCR_MAX_WAIT_SECONDS=1800
+PADDLEOCR_MAX_PDF_PAGES_PER_JOB=100
 ```
+
+PDF files with more than `PADDLEOCR_MAX_PDF_PAGES_PER_JOB` pages are split into
+multiple OCR jobs and merged back with original page numbers.
 
 Embedding configuration:
 
@@ -98,6 +102,11 @@ The worker also starts an internal HTTP endpoint:
 
 The web app can call this service through `EMBEDDING_SERVICE_URL` to generate
 query vectors without knowing model-specific details.
+
+The endpoint is intentionally internal-only in Docker Compose and production
+requires `EMBEDDING_SERVICE_TOKEN`. It also enforces request size/text-count
+limits. The worker republishes stale pending task rows every minute, so an
+interrupted pgmq delivery does not leave a file permanently unindexed.
 
 Worker concurrency:
 
@@ -131,3 +140,10 @@ docker compose up -d --build file-worker
 
 `file-worker` depends on PostgreSQL, MinIO and Gotenberg. For OCR parsing, set
 `PADDLEOCR_TOKEN` in `docker/.env` before starting the service.
+
+For large Office/PPT files, keep Gotenberg and worker timeouts aligned:
+
+```env
+GOTENBERG_API_TIMEOUT=600s
+GOTENBERG_CONVERT_TIMEOUT_SECONDS=600
+```

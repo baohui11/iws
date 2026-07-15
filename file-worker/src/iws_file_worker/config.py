@@ -30,6 +30,7 @@ class Settings:
     s3_project_files_bucket: str
     s3_force_path_style: bool
     gotenberg_url: str
+    gotenberg_convert_timeout_seconds: int
     worker_id: str
     poll_interval_seconds: float
     visibility_timeout_seconds: int
@@ -43,6 +44,7 @@ class Settings:
     paddleocr_model: str
     paddleocr_poll_interval_seconds: int
     paddleocr_max_wait_seconds: int
+    paddleocr_max_pdf_pages_per_job: int
     embedding_api_key: str
     embedding_api_url: str
     embedding_model: str
@@ -82,6 +84,9 @@ def load_settings() -> Settings:
         ).strip(),
         s3_force_path_style=_bool_env("S3_FORCE_PATH_STYLE", True),
         gotenberg_url=os.getenv("GOTENBERG_URL", "http://localhost:3001").strip(),
+        gotenberg_convert_timeout_seconds=max(
+            30, int(os.getenv("GOTENBERG_CONVERT_TIMEOUT_SECONDS", "600"))
+        ),
         worker_id=os.getenv("FILE_WORKER_ID", "file-worker").strip(),
         poll_interval_seconds=float(
             os.getenv("FILE_WORKER_POLL_INTERVAL_SECONDS", "2")
@@ -104,6 +109,9 @@ def load_settings() -> Settings:
             os.getenv("PADDLEOCR_POLL_INTERVAL_SECONDS", "5")
         ),
         paddleocr_max_wait_seconds=int(os.getenv("PADDLEOCR_MAX_WAIT_SECONDS", "1800")),
+        paddleocr_max_pdf_pages_per_job=max(
+            1, int(os.getenv("PADDLEOCR_MAX_PDF_PAGES_PER_JOB", "100"))
+        ),
         embedding_api_key=os.getenv("DASHSCOPE_API_KEY", "").strip(),
         embedding_api_url=os.getenv(
             "EMBEDDING_API_URL",
